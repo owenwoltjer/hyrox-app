@@ -489,8 +489,8 @@ export default function DayDetailPage() {
     // API call (non-blocking)
     await upsertLog("completed");
     setIsSaving(false);
-    // Refresh server cache then navigate after 1.5s so Today stats update
-    setTimeout(() => { router.refresh(); router.push("/today"); }, 1500);
+    router.refresh();
+    setTimeout(() => { router.push("/today"); }, 1500);
   }
 
   async function handleSkip() {
@@ -499,7 +499,8 @@ export default function DayDetailPage() {
     setShowSuccessRing(true);
     await upsertLog("skipped");
     setIsSaving(false);
-    setTimeout(() => { router.refresh(); router.push("/today"); }, 1500);
+    router.refresh();
+    setTimeout(() => { router.push("/today"); }, 1500);
   }
 
   function handleEditLog() {

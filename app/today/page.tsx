@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { usePathname } from "next/navigation";
 import Link from "next/link";
 import {
   Home,
@@ -199,6 +200,8 @@ function RpeSlider({
 // ---------------------------------------------------------------------------
 
 export default function TodayPage() {
+  const pathname = usePathname();
+
   // ── clientDate: null during SSR, set to "Mon D" string (e.g. "Jun 4") on mount
   // Never call new Date() outside of useEffect — Vercel SSRs in UTC which
   // gives the wrong local date for most users.
@@ -218,12 +221,14 @@ export default function TodayPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
-  // ── Fetch sessions (called on mount and on page re-focus) ────────────────
+  // ── Fetch sessions — cache-busted so browser never returns stale data ─────
   const fetchSessions = useCallback((todayKey: string) => {
-    fetch("/api/sessions")
+    console.log("[HYROX] fetchSessions called, todayKey:", todayKey);
+    fetch(`/api/sessions?t=${Date.now()}`)
       .then((r) => r.json())
       .then(({ data, error }: { data: SessionLog[] | null; error: string | null }) => {
         if (error) console.error("[HYROX] sessions API error:", error);
+        console.log("[HYROX] sessions result:", data);
         if (data) {
           setAllLogs(data);
           const existing = data.find((l) => l.day_key === todayKey);
@@ -240,30 +245,27 @@ export default function TodayPage() {
       .finally(() => setIsLoading(false));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Single effect: resolve local date + initial fetch + focus refetch ─────
+  // ── Effect 1: resolve local date once on mount ────────────────────────────
   useEffect(() => {
     const now = new Date();
     const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
     const todayStr = `${months[now.getMonth()]} ${now.getDate()}`;
-
     setClientDate(todayStr);
 
     const todayDay = PHASE_1.find((d) => d.date === todayStr);
     console.log("[HYROX] looking for:", todayStr);
     console.log("[HYROX] found:", todayDay);
+  }, []); // runs once
 
-    const todayKey = todayStr.replace(" ", "_");
+  // ── Effect 2: fetch whenever clientDate resolves OR pathname changes ───────
+  // pathname changes every time Next.js navigates back to /today from /day/[key],
+  // ensuring fresh session data even if the component stays mounted.
+  useEffect(() => {
+    if (!clientDate) return;
+    const todayKey = clientDate.replace(" ", "_");
+    setIsLoading(true);
     fetchSessions(todayKey);
-
-    // Refetch every time the page becomes visible (e.g. back-navigation from /day)
-    function handleVisibilityChange() {
-      if (document.visibilityState === "visible") {
-        fetchSessions(todayKey);
-      }
-    }
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
-  }, [fetchSessions]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [clientDate, pathname, fetchSessions]);
 
   // ── Derived stats ─────────────────────────────────────────────────────────
   // day_key in DB is "Jun_4"; getDayKey(d) returns "Jun_4" — consistent.

@@ -28,7 +28,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ data: null, error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ data, error: null });
+  return NextResponse.json({ data, error: null }, {
+    headers: { "Cache-Control": "no-store, no-cache, must-revalidate" },
+  });
 }
 
 // ---------------------------------------------------------------------------
