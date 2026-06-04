@@ -46,6 +46,37 @@ create index if not exists idx_session_logs_date    on public.session_logs (date
 create index if not exists idx_session_logs_status  on public.session_logs (status);
 
 -- ---------------------------------------------------------------------------
+-- training_plan
+-- One row per planned training day across all phases.
+-- Seeded via scripts/seed-all-phases.ts (service role key required).
+-- day_key is the conflict key: "Jun_4", "Jul_1", etc.
+-- ---------------------------------------------------------------------------
+create table if not exists public.training_plan (
+  id         uuid     primary key default gen_random_uuid(),
+  day_key    text     not null unique,   -- e.g. "Jun_4"
+  phase      smallint not null,          -- 1 | 2 | 3 | 4
+  week       smallint not null,          -- week within the phase
+  dow        text     not null,          -- "Mon" | "Tue" | …
+  date       text     not null,          -- "Jun 4" (no year)
+  type       text     not null,          -- run | lift | combo | rest | bike | hyrox
+  type_label text     not null,          -- human-readable label
+  session    text     not null,          -- short session name
+  desc       text     not null           -- full prescription
+);
+
+create index if not exists idx_training_plan_phase on public.training_plan (phase);
+create index if not exists idx_training_plan_date  on public.training_plan (date);
+
+alter table public.training_plan enable row level security;
+
+drop policy if exists "anon_read_training_plan" on public.training_plan;
+create policy "anon_read_training_plan"
+  on public.training_plan
+  for select
+  to anon
+  using (true);
+
+-- ---------------------------------------------------------------------------
 -- garmin_logs
 -- One row per day of biometric data. Upserted on date.
 -- ---------------------------------------------------------------------------
