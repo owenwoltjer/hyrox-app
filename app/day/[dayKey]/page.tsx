@@ -17,7 +17,7 @@ import {
   MessageCircle,
   Moon,
 } from "lucide-react";
-import { getDayByKey, getDayKey } from "@/lib/trainingData";
+import { getDayByKey, getDayKey, getDayIndex } from "@/lib/trainingData";
 import type { SessionLog, TrainingDay, WorkoutType } from "@/lib/types";
 
 // ---------------------------------------------------------------------------
@@ -355,6 +355,9 @@ export default function DayDetailPage() {
   // dayKey from URL is "Jun_4"; getDayByKey() matches against getDayKey(d) = "Jun_4"
   const day = getDayByKey(dayKey);
 
+  // ── Client date (resolved in useEffect to avoid UTC mismatch on Vercel) ──
+  const [clientDate, setClientDate] = useState<string | null>(null);
+
   // ── State ──────────────────────────────────────────────────────────────────
   const [viewState, setViewState] = useState<ViewState>("logging");
   const [existingLog, setExistingLog] = useState<SessionLog | null>(null);
@@ -372,6 +375,13 @@ export default function DayDetailPage() {
   const [aiInsight, setAiInsight] = useState<string | null>(null);
   const [isLoadingInsight, setIsLoadingInsight] = useState(false);
   const [showSuccessRing, setShowSuccessRing] = useState(false);
+
+  // ── Resolve local date on mount ───────────────────────────────────────────
+  useEffect(() => {
+    const now = new Date();
+    const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    setClientDate(`${months[now.getMonth()]} ${now.getDate()}`);
+  }, []);
 
   // ── Fetch existing log on mount ────────────────────────────────────────────
   useEffect(() => {
@@ -479,8 +489,8 @@ export default function DayDetailPage() {
     // API call (non-blocking)
     await upsertLog("completed");
     setIsSaving(false);
-    // Navigate back after 1.5s
-    setTimeout(() => router.push("/today"), 1500);
+    // Refresh server cache then navigate after 1.5s so Today stats update
+    setTimeout(() => { router.refresh(); router.push("/today"); }, 1500);
   }
 
   async function handleSkip() {
@@ -489,7 +499,7 @@ export default function DayDetailPage() {
     setShowSuccessRing(true);
     await upsertLog("skipped");
     setIsSaving(false);
-    setTimeout(() => router.push("/today"), 1500);
+    setTimeout(() => { router.refresh(); router.push("/today"); }, 1500);
   }
 
   function handleEditLog() {
@@ -532,6 +542,11 @@ export default function DayDetailPage() {
   }
 
   // ── Derive display values ──────────────────────────────────────────────────
+  const isPast =
+    clientDate !== null &&
+    day !== undefined &&
+    getDayIndex(day.date) < getDayIndex(clientDate);
+
   const headerTitle = day ? formatDayHeader(day.dow, day.date) : "…";
   const accentColor = day ? TYPE_BORDER[day.type] : "#1D9E75";
   const bullets = day ? getSessionBullets(day) : [];
@@ -649,6 +664,15 @@ export default function DayDetailPage() {
             <h3 className="text-xs font-light tracking-wider uppercase text-[#9CA3AF] mb-6 ml-1">
               {viewState === "editing" ? "Update Log" : "Log Session"}
             </h3>
+
+            {/* Amber notice for past unlogged sessions */}
+            {isPast && viewState === "logging" && !existingLog && (
+              <div className="mb-6 px-4 py-3 bg-[#3D2A00] border border-[#D4A017]/40 rounded-xl">
+                <p className="text-xs font-medium text-[#D4A017]">
+                  Logging a past session — {day?.date}
+                </p>
+              </div>
+            )}
 
             {/* Large RPE Slider */}
             <RpeSlider value={rpe} onChange={setRpe} />

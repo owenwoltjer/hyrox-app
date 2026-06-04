@@ -218,9 +218,30 @@ export default function TodayPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
-  // ── Single effect: resolve local date + fetch sessions ───────────────────
+  // ── Fetch sessions (called on mount and on page re-focus) ────────────────
+  const fetchSessions = useCallback((todayKey: string) => {
+    fetch("/api/sessions")
+      .then((r) => r.json())
+      .then(({ data, error }: { data: SessionLog[] | null; error: string | null }) => {
+        if (error) console.error("[HYROX] sessions API error:", error);
+        if (data) {
+          setAllLogs(data);
+          const existing = data.find((l) => l.day_key === todayKey);
+          if (existing) {
+            setTodayLog(existing);
+            setRpe(existing.rpe ?? 7);
+            setNotes(existing.notes ?? "");
+          } else {
+            setTodayLog(null);
+          }
+        }
+      })
+      .catch((err) => console.error("[HYROX] fetch /api/sessions failed:", err))
+      .finally(() => setIsLoading(false));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Single effect: resolve local date + initial fetch + focus refetch ─────
   useEffect(() => {
-    // localDateStr() calls new Date() — safe inside useEffect (browser only)
     const now = new Date();
     const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
     const todayStr = `${months[now.getMonth()]} ${now.getDate()}`;
@@ -231,38 +252,18 @@ export default function TodayPage() {
     console.log("[HYROX] looking for:", todayStr);
     console.log("[HYROX] found:", todayDay);
 
-    // The day_key stored in session_logs matches getDayKey(day) = "Jun_4"
     const todayKey = todayStr.replace(" ", "_");
+    fetchSessions(todayKey);
 
-    fetch("/api/sessions")
-      .then(async (r) => {
-        const json = await r.json();
-        console.log("[HYROX] GET /api/sessions →", {
-          status: r.status,
-          count: json.data?.length ?? 0,
-          error: json.error,
-        });
-        return json;
-      })
-      .then(({ data, error }: { data: SessionLog[] | null; error: string | null }) => {
-        if (error) console.error("[HYROX] sessions API error:", error);
-        if (data) {
-          setAllLogs(data);
-          // Match by URL-safe dayKey ("Jun_4"), which is what we POST when logging
-          const existing = data.find((l) => l.day_key === todayKey);
-          if (existing) {
-            console.log("[HYROX] found existing log for today:", existing);
-            setTodayLog(existing);
-            setRpe(existing.rpe ?? 7);
-            setNotes(existing.notes ?? "");
-          } else {
-            console.log("[HYROX] no log yet for today (key:", todayKey, ")");
-          }
-        }
-      })
-      .catch((err) => console.error("[HYROX] fetch /api/sessions failed:", err))
-      .finally(() => setIsLoading(false));
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    // Refetch every time the page becomes visible (e.g. back-navigation from /day)
+    function handleVisibilityChange() {
+      if (document.visibilityState === "visible") {
+        fetchSessions(todayKey);
+      }
+    }
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, [fetchSessions]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Derived stats ─────────────────────────────────────────────────────────
   // day_key in DB is "Jun_4"; getDayKey(d) returns "Jun_4" — consistent.
@@ -804,9 +805,15 @@ export default function TodayPage() {
           </div>
 
           <div className="flex gap-2 overflow-x-auto pb-2 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-            {weekDays.map((day) => (
-              <WeekPill key={day.date} day={day} />
-            ))}
+            {weekDays.map((day) =>
+              day.type === "rest" ? (
+                <WeekPill key={day.date} day={day} />
+              ) : (
+                <Link key={day.date} href={`/day/${getDayKey(day)}`} className="shrink-0">
+                  <WeekPill day={day} />
+                </Link>
+              )
+            )}
           </div>
         </section>
       </main>

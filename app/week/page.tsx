@@ -153,7 +153,7 @@ export default function WeekPage() {
                       {icon}
                     </span>
                   )}
-                  {!icon && !isRest && !isPast && (
+                  {!icon && !isRest && (
                     <span className="text-[#6B7280] text-lg">›</span>
                   )}
                 </div>
