@@ -592,10 +592,12 @@ export default function TodayPage() {
                 </span>
               </div>
 
-              <h2 className="text-2xl font-semibold tracking-tight text-white mb-1">
-                {today!.session}
-              </h2>
-              <p className="text-sm font-light text-[#9CA3AF]">{today!.desc}</p>
+              <Link href={`/day/${getDayKey(today!)}`} className="block group">
+                <h2 className="text-2xl font-semibold tracking-tight text-white mb-1 group-hover:text-[#1D9E75] transition-colors">
+                  {today!.session}
+                </h2>
+                <p className="text-sm font-light text-[#9CA3AF]">{today!.desc}</p>
+              </Link>
 
               {/* Status badge */}
               <div className="flex items-center gap-2 mt-4 pt-4 border-t border-[#2A2A2A]">
@@ -679,12 +681,22 @@ export default function TodayPage() {
                 </span>
               </div>
 
-              <h2 className="text-2xl font-semibold tracking-tight text-white mb-1">
-                {today!.session}
-              </h2>
-              <p className="text-sm font-light text-[#9CA3AF] mb-6">
-                {today!.desc}
-              </p>
+              <Link
+                href={`/day/${getDayKey(today!)}`}
+                className="block group"
+              >
+                <h2 className="text-2xl font-semibold tracking-tight text-white mb-1 group-hover:text-[#1D9E75] transition-colors">
+                  {today!.session}
+                </h2>
+                <p className="text-sm font-light text-[#9CA3AF] mb-1">
+                  {today!.desc}
+                </p>
+                <span className="text-xs font-medium text-[#1D9E75] opacity-0 group-hover:opacity-100 transition-opacity">
+                  View full session →
+                </span>
+              </Link>
+
+              <div className="mb-6" />
 
               {/* Action buttons */}
               {!isEditing && (
