@@ -241,7 +241,7 @@ export default function TodayPage() {
       .map((l) => [l.day_key, l])
   );
 
-  const completedThisWeek = [...weekLogMap.values()].filter(
+  const completedThisWeek = Array.from(weekLogMap.values()).filter(
     (l) => l.status === "completed" || l.status === "modified"
   ).length;
 
