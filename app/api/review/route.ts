@@ -10,12 +10,29 @@ const anthropic = new Anthropic({
 });
 
 // ---------------------------------------------------------------------------
+// Athlete profile — included in every system prompt
+// ---------------------------------------------------------------------------
+const ATHLETE_PROFILE = `
+ATHLETE PROFILE — Owen Woltjer
+- Height: 6'5"  |  Weight: 220 lbs
+- Background: Former NAIA All-American distance runner
+- 5k PR: 15:07
+- Goal: Sub-60 HYROX Open by November 20, 2026
+- Primary limiters: Running under fatigue, walking lunges
+- Training structure: 24-week periodised plan (Phase 1–4)
+  • Phase 1 (weeks 1-8): Base build — Jun 1 – Jul 26
+  • Phase 2 (weeks 9-17): Threshold + HYROX specificity — Jul 27 – Sep 27
+  • Phase 3 (weeks 18-21): Race-specific sharpening — Sep 28 – Oct 25
+  • Phase 4 (weeks 22-24): Taper + Race Week — Oct 26 – Nov 20
+`.trim();
+
+// ---------------------------------------------------------------------------
 // POST /api/review
 // Reads all session logs + Garmin data from Supabase, builds a context
-// prompt, and returns an AI coach review using Claude.
+// prompt, and returns an AI coach response using Claude.
 //
-// Optional body fields:
-//   { question?: string }  — athlete's specific question to the coach
+// Body: { question: string }
+// Response: { response: string, planUpdated: boolean }
 // ---------------------------------------------------------------------------
 export async function POST(request: NextRequest) {
   let question = "Give me a weekly training review and recommendations.";
@@ -29,7 +46,7 @@ export async function POST(request: NextRequest) {
     // No body is fine — use default question
   }
 
-  // ── 1. Fetch all session logs ──────────────────────────────────────────
+  // ── 1. Fetch all session logs ──────────────────────────────────────────────
   const { data: sessions, error: sessionsError } = await supabase
     .from("session_logs")
     .select("*")
@@ -37,41 +54,48 @@ export async function POST(request: NextRequest) {
 
   if (sessionsError) {
     return NextResponse.json(
-      { data: null, error: `Failed to fetch sessions: ${sessionsError.message}` },
+      { response: null, planUpdated: false, error: `Failed to fetch sessions: ${sessionsError.message}` },
       { status: 500 }
     );
   }
 
-  // ── 2. Fetch last 14 days of Garmin data ──────────────────────────────
+  // ── 2. Fetch all Garmin data ───────────────────────────────────────────────
   const { data: garmin, error: garminError } = await supabase
     .from("garmin_logs")
     .select("*")
     .order("date", { ascending: false })
-    .limit(14);
+    .limit(30);
 
   if (garminError) {
     return NextResponse.json(
-      { data: null, error: `Failed to fetch Garmin data: ${garminError.message}` },
+      { response: null, planUpdated: false, error: `Failed to fetch Garmin data: ${garminError.message}` },
       { status: 500 }
     );
   }
 
-  // ── 3. Build context string ────────────────────────────────────────────
+  // ── 3. Build context ───────────────────────────────────────────────────────
   const context = buildCoachContext(
     (sessions as SessionLog[]) ?? [],
     (garmin as GarminEntry[]) ?? []
   );
 
-  // ── 4. Call Claude ─────────────────────────────────────────────────────
+  // ── 4. Call Claude ─────────────────────────────────────────────────────────
   try {
     const message = await anthropic.messages.create({
       model: "claude-opus-4-5",
       max_tokens: 1024,
-      system: `You are an expert HYROX coach and sports scientist. You analyse
-training data and provide personalised, actionable coaching advice.
-Be direct, encouraging, and specific. Use bullet points where helpful.
-Reference actual numbers from the athlete's data when making observations.
-Keep responses under 400 words unless the athlete asks for more detail.`,
+      system: `You are an expert HYROX coach and sports scientist working with a specific athlete. Here is their full profile:
+
+${ATHLETE_PROFILE}
+
+Your role:
+- Analyse their training data and provide personalised, actionable coaching advice
+- Be direct, encouraging, and specific — reference actual numbers from their logs
+- Use bullet points where helpful; keep responses focused (under 350 words unless asked for more)
+- When discussing pace targets, use min/mile (e.g. 7:15/mi) not km
+- Always relate advice back to the sub-60 HYROX goal
+- Acknowledge rest days are planned recovery, not failures
+- If the athlete is asking about race readiness, be honest but encouraging`,
       messages: [
         {
           role: "user",
@@ -85,20 +109,17 @@ Keep responses under 400 words unless the athlete asks for more detail.`,
       throw new Error("Unexpected response type from Claude");
     }
 
+    console.log("[API/review] Claude responded, tokens:", message.usage);
+
     return NextResponse.json({
-      data: {
-        response: content.text,
-        role: "assistant" as const,
-        timestamp: new Date().toISOString(),
-        sessionCount: sessions?.length ?? 0,
-        garminCount: garmin?.length ?? 0,
-      },
-      error: null,
+      response: content.text,
+      planUpdated: false,
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Unknown AI error";
+    const msg = err instanceof Error ? err.message : "Unknown AI error";
+    console.error("[API/review] Claude error:", msg);
     return NextResponse.json(
-      { data: null, error: `Claude API error: ${message}` },
+      { response: null, planUpdated: false, error: `Claude API error: ${msg}` },
       { status: 500 }
     );
   }
@@ -110,8 +131,24 @@ Keep responses under 400 words unless the athlete asks for more detail.`,
 function buildCoachContext(sessions: SessionLog[], garmin: GarminEntry[]): string {
   const lines: string[] = [];
 
-  // Session log summary
-  lines.push("=== SESSION LOGS ===");
+  // Session summary stats
+  const completed = sessions.filter(
+    (s) => s.status === "completed" || s.status === "modified"
+  );
+  const skipped = sessions.filter((s) => s.status === "skipped");
+  const withRpe = sessions.filter((s) => s.rpe != null);
+  const avgRpe =
+    withRpe.length > 0
+      ? (withRpe.reduce((s, l) => s + (l.rpe ?? 0), 0) / withRpe.length).toFixed(1)
+      : "N/A";
+
+  lines.push("=== SUMMARY ===");
+  lines.push(`Total sessions logged: ${sessions.length}`);
+  lines.push(`Completed: ${completed.length}  |  Skipped: ${skipped.length}`);
+  lines.push(`Average RPE: ${avgRpe}`);
+
+  // Individual session logs
+  lines.push("\n=== SESSION LOGS (chronological) ===");
   if (sessions.length === 0) {
     lines.push("No sessions logged yet.");
   } else {
@@ -134,7 +171,7 @@ function buildCoachContext(sessions: SessionLog[], garmin: GarminEntry[]): strin
   }
 
   // Garmin / biometric data
-  lines.push("\n=== BIOMETRIC / GARMIN DATA (last 14 days) ===");
+  lines.push("\n=== BIOMETRIC / GARMIN DATA ===");
   if (garmin.length === 0) {
     lines.push("No Garmin data recorded yet.");
   } else {
