@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { usePathname } from "next/navigation";
 import Link from "next/link";
 import {
   Home,
@@ -200,11 +199,7 @@ function RpeSlider({
 // ---------------------------------------------------------------------------
 
 export default function TodayPage() {
-  const pathname = usePathname();
-
-  // ── clientDate: null during SSR, set to "Mon D" string (e.g. "Jun 4") on mount
-  // Never call new Date() outside of useEffect — Vercel SSRs in UTC which
-  // gives the wrong local date for most users.
+  // ── clientDate: null during SSR, resolved on client in useEffect ──────────
   const [clientDate, setClientDate] = useState<string | null>(null);
 
   // All lookups derived from clientDate — pure array finds, no new Date()
@@ -212,7 +207,8 @@ export default function TodayPage() {
   const currentWeek = clientDate ? getWeekForDate(clientDate) : 1;
   const weekDays = getWeekDays(currentWeek);
 
-  const [allLogs, setAllLogs] = useState<SessionLog[]>([]);
+  // Single sessions array — both stats bar and week strip read from this
+  const [sessions, setSessions] = useState<SessionLog[]>([]);
   const [todayLog, setTodayLog] = useState<SessionLog | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [rpe, setRpe] = useState(7);
@@ -221,27 +217,28 @@ export default function TodayPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
-  // ── Effect 1: log mount once ──────────────────────────────────────────────
+  // ── Single effect: resolve date + fetch sessions ──────────────────────────
   useEffect(() => {
-    console.log("[HYROX] component mounted");
-  }, []);
+    const now = new Date();
+    const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    const todayStr = `${months[now.getMonth()]} ${now.getDate()}`;
+    const todayKey = todayStr.replace(" ", "_");
+    setClientDate(todayStr);
 
-  // ── Effect 2: log every pathname change ───────────────────────────────────
-  useEffect(() => {
-    console.log("[HYROX] pathname changed:", pathname);
-  }, [pathname]);
+    const url = `/api/sessions?t=${Date.now()}`;
+    console.log("[TODAY] fetchSessions called");
+    console.log("[TODAY] fetch URL:", url);
 
-  // ── Fetch sessions — cache-busted so browser never returns stale data ─────
-  const fetchSessions = useCallback((todayKey: string) => {
-    console.log("[HYROX] fetchSessions called at:", new Date().toISOString());
-    fetch(`/api/sessions?t=${Date.now()}`)
-      .then((r) => r.json())
+    fetch(url)
+      .then((res) => {
+        console.log("[TODAY] response status:", res.status);
+        return res.json();
+      })
       .then(({ data, error }: { data: SessionLog[] | null; error: string | null }) => {
-        if (error) console.error("[HYROX] sessions API error:", error);
-        console.log("[HYROX] raw API response:", JSON.stringify(data));
+        if (error) console.error("[TODAY] sessions API error:", error);
+        console.log("[TODAY] sessions returned:", data?.length ?? 0);
         if (data) {
-          setAllLogs(data);
-          console.log("[HYROX] sessions state updated:", data.length);
+          setSessions(data);
           const existing = data.find((l) => l.day_key === todayKey);
           if (existing) {
             setTodayLog(existing);
@@ -252,36 +249,14 @@ export default function TodayPage() {
           }
         }
       })
-      .catch((err) => console.error("[HYROX] fetch /api/sessions failed:", err))
+      .catch((err) => console.error("[TODAY] fetch failed:", err))
       .finally(() => setIsLoading(false));
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // ── Effect 3: resolve local date once on mount ────────────────────────────
-  useEffect(() => {
-    const now = new Date();
-    const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-    const todayStr = `${months[now.getMonth()]} ${now.getDate()}`;
-    setClientDate(todayStr);
-
-    const todayDay = PHASE_1.find((d) => d.date === todayStr);
-    console.log("[HYROX] looking for:", todayStr);
-    console.log("[HYROX] found:", todayDay);
-  }, []); // runs once
-
-  // ── Effect 4: fetch whenever clientDate resolves OR pathname changes ───────
-  // pathname changes every time Next.js navigates back to /today from /day/[key],
-  // ensuring fresh session data even if the component stays mounted.
-  useEffect(() => {
-    if (!clientDate) return;
-    const todayKey = clientDate.replace(" ", "_");
-    setIsLoading(true);
-    fetchSessions(todayKey);
-  }, [clientDate, pathname, fetchSessions]);
+  }, []); // runs once on mount — window.location.href reload triggers a fresh mount
 
   // ── Derived stats ─────────────────────────────────────────────────────────
   // day_key in DB is "Jun_4"; getDayKey(d) returns "Jun_4" — consistent.
   const weekLogMap = new Map(
-    allLogs
+    sessions
       .filter((l) => weekDays.some((d) => getDayKey(d) === l.day_key))
       .map((l) => [l.day_key, l])
   );
@@ -290,7 +265,7 @@ export default function TodayPage() {
     (l) => l.status === "completed" || l.status === "modified"
   ).length;
 
-  const logsWithRpe = allLogs.filter((l) => l.rpe != null);
+  const logsWithRpe = sessions.filter((l) => l.rpe != null);
   const avgRpe =
     logsWithRpe.length > 0
       ? (
@@ -300,7 +275,7 @@ export default function TodayPage() {
       : "—";
 
   // Pass clientDate so computeStreak never calls new Date() itself
-  const streak = clientDate ? computeStreak(allLogs, clientDate) : 0;
+  const streak = clientDate ? computeStreak(sessions, clientDate) : 0;
 
   // ── Upsert helper ─────────────────────────────────────────────────────────
   const upsertLog = useCallback(
@@ -321,7 +296,7 @@ export default function TodayPage() {
         });
         const { data } = await res.json();
         if (data) {
-          setAllLogs((prev) => {
+          setSessions((prev) => {
             const idx = prev.findIndex((l) => l.day_key === data.day_key);
             return idx >= 0
               ? prev.map((l, i) => (i === idx ? data : l))

@@ -461,6 +461,7 @@ export default function DayDetailPage() {
             ? { entry: weights.trim() }
             : null,
       };
+      console.log("[DAY] POST body:", JSON.stringify(body));
       try {
         const res = await fetch("/api/sessions", {
           method: "POST",
@@ -468,7 +469,7 @@ export default function DayDetailPage() {
           body: JSON.stringify(body),
         });
         const json = await res.json();
-        console.log("[HYROX] upsertLog response:", JSON.stringify(json));
+        console.log("[DAY] POST response:", JSON.stringify(json));
         if (json.data) setExistingLog(json.data);
       } catch (err) {
         console.error("[DayDetail] upsert failed:", err);
@@ -479,38 +480,31 @@ export default function DayDetailPage() {
 
   // ── Handlers ───────────────────────────────────────────────────────────────
   async function handleComplete() {
-    console.log("[HYROX] handleComplete called");
+    console.log("[DAY] handleComplete called for:", dayKey);
     setIsSaving(true);
-    // Optimistic UI
     setViewState("completed");
     setShowSuccessRing(true);
-    // Fetch AI insight if notes present
     if (notes.trim() && day) {
       fetchInsight(notes, day.session);
     }
-    // API call (non-blocking)
     await upsertLog("completed");
     setIsSaving(false);
-    console.log("[HYROX] router.refresh() called");
-    router.refresh();
     setTimeout(() => {
-      console.log("[HYROX] navigating to /today");
-      router.push("/today");
+      console.log("[DAY] navigating to /today");
+      window.location.href = "/today";
     }, 1500);
   }
 
   async function handleSkip() {
-    console.log("[HYROX] handleSkip called");
+    console.log("[DAY] handleSkip called for:", dayKey);
     setIsSaving(true);
     setViewState("skipped");
     setShowSuccessRing(true);
     await upsertLog("skipped");
     setIsSaving(false);
-    console.log("[HYROX] router.refresh() called");
-    router.refresh();
     setTimeout(() => {
-      console.log("[HYROX] navigating to /today");
-      router.push("/today");
+      console.log("[DAY] navigating to /today");
+      window.location.href = "/today";
     }, 1500);
   }
 
