@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import type { GarminEntry } from "@/lib/types";
 
+export const dynamic = "force-dynamic";
+
 // ---------------------------------------------------------------------------
 // GET /api/garmin
 // Returns all Garmin entries ordered by date descending.
@@ -58,7 +60,7 @@ export async function POST(request: NextRequest) {
 
   const { data, error } = await supabase
     .from("garmin_logs")
-    .upsert(payload, { onConflict: "date" })
+    .upsert(payload as any, { onConflict: "date" })
     .select()
     .single();
 

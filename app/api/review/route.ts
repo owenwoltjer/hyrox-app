@@ -3,6 +3,8 @@ import Anthropic from "@anthropic-ai/sdk";
 import { supabase } from "@/lib/supabase";
 import type { SessionLog, GarminEntry } from "@/lib/types";
 
+export const dynamic = "force-dynamic";
+
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });

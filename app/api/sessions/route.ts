@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabase } from "@/lib/supabase";
 import type { SessionLog } from "@/lib/types";
 
+export const dynamic = "force-dynamic";
+
 // ---------------------------------------------------------------------------
 // GET /api/sessions
 // Returns all session logs ordered by date descending.
@@ -61,7 +63,7 @@ export async function POST(request: NextRequest) {
 
   const { data, error } = await supabase
     .from("session_logs")
-    .upsert(payload, { onConflict: "day_key" })
+    .upsert(payload as any, { onConflict: "day_key" })
     .select()
     .single();
 
