@@ -542,19 +542,6 @@ export const PHASE_1: TrainingDay[] = [
 // ---------------------------------------------------------------------------
 
 /**
- * Returns true if the given ISO date string is today's date (local time).
- */
-export function isToday(dateStr: string): boolean {
-  const today = new Date();
-  const d = new Date(dateStr + "T00:00:00"); // force midnight local parse
-  return (
-    d.getFullYear() === today.getFullYear() &&
-    d.getMonth() === today.getMonth() &&
-    d.getDate() === today.getDate()
-  );
-}
-
-/**
  * Returns a stable composite key for a training day.
  * Format: "YYYY-MM-DD"  (matches session_logs.day_key in Supabase)
  */
@@ -563,10 +550,12 @@ export function getDayKey(day: TrainingDay): string {
 }
 
 /**
- * Returns the TrainingDay for today, or undefined if today is outside Phase 1.
+ * Pure date-string lookup — no `new Date()`, timezone-safe.
+ * Pass a "YYYY-MM-DD" string (always sourced from the client browser).
+ * Returns the TrainingDay for that date, or undefined if outside Phase 1.
  */
-export function getTodayDay(): TrainingDay | undefined {
-  return PHASE_1.find((d) => isToday(d.date));
+export function getDayByDate(dateStr: string): TrainingDay | undefined {
+  return PHASE_1.find((d) => d.date === dateStr);
 }
 
 /**
@@ -577,24 +566,51 @@ export function getWeekDays(week: number): TrainingDay[] {
 }
 
 /**
- * Returns the current week number based on today's date, clamped to 1–8.
- * Falls back to 1 if today is before Phase 1 starts, or 8 if after it ends.
+ * Pure string-based week lookup — no `new Date()`, timezone-safe.
+ * Accepts a "YYYY-MM-DD" string (always sourced from the client browser).
+ * Returns the week number (1–8), clamped to plan boundaries.
  */
+export function getWeekForDate(dateStr: string): number {
+  // Exact match inside the plan
+  const day = PHASE_1.find((d) => d.date === dateStr);
+  if (day) return day.week;
+
+  // Before plan starts
+  if (dateStr < PHASE_1[0].date) return 1;
+  // After plan ends
+  if (dateStr > PHASE_1[PHASE_1.length - 1].date) return 8;
+
+  // Within plan range but not a training day (shouldn't happen, but safe fallback)
+  // Find the most recent day that is <= dateStr
+  const prior = [...PHASE_1].reverse().find((d) => d.date <= dateStr);
+  return prior ? prior.week : 1;
+}
+
+// ---------------------------------------------------------------------------
+// ⚠️  Legacy helpers — use new Date() so they return the server's UTC date
+//     when called during SSR.  Only safe to call from client-side code.
+//     Prefer getDayByDate() / getWeekForDate() in components.
+// ---------------------------------------------------------------------------
+
+/** @deprecated Use getDayByDate(todayDateStr()) instead */
+export function isToday(dateStr: string): boolean {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const d = String(now.getDate()).padStart(2, "0");
+  return dateStr === `${y}-${m}-${d}`;
+}
+
+/** @deprecated Use getDayByDate(todayDateStr()) instead */
+export function getTodayDay(): TrainingDay | undefined {
+  return PHASE_1.find((d) => isToday(d.date));
+}
+
+/** @deprecated Use getWeekForDate(todayDateStr()) instead */
 export function getCurrentWeek(): number {
-  const today = new Date();
-  const todayDay = PHASE_1.find((d) => isToday(d.date));
-  if (todayDay) return todayDay.week;
-
-  const firstDate = new Date(PHASE_1[0].date + "T00:00:00");
-  const lastDate = new Date(
-    PHASE_1[PHASE_1.length - 1].date + "T00:00:00"
-  );
-
-  if (today < firstDate) return 1;
-  if (today > lastDate) return 8;
-
-  // Fallback: calculate by day offset
-  const msPerWeek = 7 * 24 * 60 * 60 * 1000;
-  const elapsed = today.getTime() - firstDate.getTime();
-  return Math.min(8, Math.floor(elapsed / msPerWeek) + 1);
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const d = String(now.getDate()).padStart(2, "0");
+  return getWeekForDate(`${y}-${m}-${d}`);
 }

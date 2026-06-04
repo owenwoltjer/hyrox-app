@@ -14,9 +14,9 @@ import {
   Plus,
 } from "lucide-react";
 import {
-  getTodayDay,
+  getDayByDate,
   getWeekDays,
-  getCurrentWeek,
+  getWeekForDate,
   getDayKey,
   PHASE_1,
 } from "@/lib/trainingData";
@@ -77,15 +77,18 @@ function todayDateStr(): string {
   return `${y}-${m}-${day}`;
 }
 
-/** Count consecutive completed days going backward from yesterday (rest days don't break streak) */
-function computeStreak(logs: SessionLog[]): number {
-  const today = todayDateStr();
+/**
+ * Count consecutive completed days going backward from yesterday.
+ * Rest days don't break the streak.
+ * Accepts an explicit todayStr (YYYY-MM-DD) so it never calls new Date().
+ */
+function computeStreak(logs: SessionLog[], todayStr: string): number {
   const logMap = new Map(logs.map((l) => [l.day_key, l]));
   let streak = 0;
 
-  // Walk backward through the phase plan from today (exclusive)
+  // Walk backward through the phase plan, stopping before today
   const sorted = [...PHASE_1]
-    .filter((d) => d.date < today)
+    .filter((d) => d.date < todayStr)
     .sort((a, b) => (a.date > b.date ? -1 : 1));
 
   for (const day of sorted) {
@@ -200,8 +203,16 @@ function RpeSlider({
 // ---------------------------------------------------------------------------
 
 export default function TodayPage() {
-  const today = getTodayDay();
-  const currentWeek = getCurrentWeek();
+  // ── Client date — null on first SSR pass, set to local date on mount ─────
+  // IMPORTANT: never call new Date() / getTodayDay() / getCurrentWeek() at
+  // the top of this component — Next.js SSRs it on Vercel (UTC), which would
+  // give the wrong calendar date for users in non-UTC timezones.  We derive
+  // everything from clientDate which is set client-side in the first effect.
+  const [clientDate, setClientDate] = useState<string | null>(null);
+
+  // Derived from clientDate — all pure string lookups, no new Date()
+  const today = clientDate ? getDayByDate(clientDate) : undefined;
+  const currentWeek = clientDate ? getWeekForDate(clientDate) : 1;
   const weekDays = getWeekDays(currentWeek);
 
   const [allLogs, setAllLogs] = useState<SessionLog[]>([]);
@@ -213,24 +224,44 @@ export default function TodayPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
-  // ── Fetch all session logs on mount ──────────────────────────────────────
+  // ── Single effect: resolve client date + fetch sessions ──────────────────
   useEffect(() => {
+    // todayDateStr() uses new Date() — safe here because we're in useEffect
+    // which only runs in the browser, never during SSR.
+    const dateStr = todayDateStr();
+    setClientDate(dateStr);
+
+    console.log("[HYROX] client date resolved:", dateStr);
+
     fetch("/api/sessions")
-      .then((r) => r.json())
-      .then(({ data }: { data: SessionLog[] | null }) => {
+      .then(async (r) => {
+        const json = await r.json();
+        console.log("[HYROX] GET /api/sessions →", {
+          status: r.status,
+          data: json.data,
+          error: json.error,
+        });
+        return json;
+      })
+      .then(({ data, error }: { data: SessionLog[] | null; error: string | null }) => {
+        if (error) {
+          console.error("[HYROX] sessions API error:", error);
+        }
         if (data) {
           setAllLogs(data);
-          if (today) {
-            const existing = data.find((l) => l.day_key === getDayKey(today));
-            if (existing) {
-              setTodayLog(existing);
-              setRpe(existing.rpe ?? 7);
-              setNotes(existing.notes ?? "");
-            }
+          // Look for today's log using the just-resolved dateStr (not stale closure)
+          const existing = data.find((l) => l.day_key === dateStr);
+          if (existing) {
+            console.log("[HYROX] found existing log for today:", existing);
+            setTodayLog(existing);
+            setRpe(existing.rpe ?? 7);
+            setNotes(existing.notes ?? "");
+          } else {
+            console.log("[HYROX] no existing log for today (", dateStr, ")");
           }
         }
       })
-      .catch(() => {/* silently handle — offline / cold start */})
+      .catch((err) => console.error("[HYROX] fetch /api/sessions failed:", err))
       .finally(() => setIsLoading(false));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -254,7 +285,8 @@ export default function TodayPage() {
         ).toFixed(1)
       : "—";
 
-  const streak = computeStreak(allLogs);
+  // Pass clientDate so computeStreak never calls new Date() itself
+  const streak = clientDate ? computeStreak(allLogs, clientDate) : 0;
 
   // ── Upsert helper ─────────────────────────────────────────────────────────
   const upsertLog = useCallback(
@@ -292,8 +324,8 @@ export default function TodayPage() {
   function optimisticBase(): SessionLog {
     return {
       id: todayLog?.id ?? "optimistic-" + Date.now(),
-      day_key: today ? getDayKey(today) : todayDateStr(),
-      date: today?.date ?? todayDateStr(),
+      day_key: today ? getDayKey(today) : (clientDate ?? ""),
+      date: today?.date ?? (clientDate ?? ""),
       dow: today?.dow ?? "",
       session: today?.session ?? "",
       status: "planned",
@@ -357,19 +389,24 @@ export default function TodayPage() {
   const isSkipped = todayLog?.status === "skipped";
 
   // ── Date display ──────────────────────────────────────────────────────────
-  const dateDisplay = today
-    ? formatDate(today.date)
-    : formatDate(todayDateStr());
+  // Use clientDate for display — avoids UTC mismatch on server render
+  const dateDisplay = clientDate
+    ? formatDate(clientDate)
+    : "Loading…";
 
   // ── Off-season guard ──────────────────────────────────────────────────────
-  const isOffPlan = !today;
+  // Only show "no session" AFTER clientDate has been resolved.
+  // While clientDate is null (SSR / pre-hydration) we show a loading skeleton
+  // instead of the "no session" message, preventing a flash of wrong content.
+  const isOffPlan = clientDate !== null && !today;
 
   // ── Week strip rendering ──────────────────────────────────────────────────
   function WeekPill({ day }: { day: (typeof weekDays)[0] }) {
     const dayKey = getDayKey(day);
     const log = weekLogMap.get(dayKey);
-    const isToday = dayKey === todayDateStr();
-    const isPast = dayKey < todayDateStr();
+    // Use clientDate (never new Date()) for today/past comparisons
+    const isToday = clientDate !== null && dayKey === clientDate;
+    const isPast = clientDate !== null && dayKey < clientDate;
     const isCompleted =
       log?.status === "completed" || log?.status === "modified";
     const isSkippedDay = log?.status === "skipped";
@@ -508,7 +545,15 @@ export default function TodayPage() {
         </section>
 
         {/* 3. Hero Session Card */}
-        {isOffPlan ? (
+        {/* Loading skeleton — shown during SSR and until clientDate resolves */}
+        {clientDate === null ? (
+          <section className="bg-[#1A1A1A] border border-[#3A3A3A] rounded-2xl p-5 mb-8 animate-pulse">
+            <div className="h-5 w-24 bg-[#2A2A2A] rounded-full mb-4" />
+            <div className="h-7 w-48 bg-[#2A2A2A] rounded mb-2" />
+            <div className="h-4 w-64 bg-[#2A2A2A] rounded mb-6" />
+            <div className="h-12 w-full bg-[#2A2A2A] rounded-xl" />
+          </section>
+        ) : isOffPlan ? (
           <section className="bg-[#1A1A1A] border border-[#3A3A3A] rounded-2xl p-5 mb-8">
             <p className="text-[#9CA3AF] text-sm font-light text-center py-4">
               No session planned for today — you&apos;re outside Phase 1.
