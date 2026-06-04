@@ -227,11 +227,9 @@ export default function TodayPage() {
 
     setClientDate(todayStr);
 
-    // Debug: confirm what date the browser resolved and what the plan has
-    console.log("[HYROX] todayStr =", todayStr);
-    console.log("[HYROX] first 7 plan dates =", PHASE_1.slice(0, 7).map((d) => d.date));
-    const matched = PHASE_1.find((d) => d.date === todayStr);
-    console.log("[HYROX] matched training day =", matched ?? "NONE — check date format");
+    const todayDay = PHASE_1.find((d) => d.date === todayStr);
+    console.log("[HYROX] looking for:", todayStr);
+    console.log("[HYROX] found:", todayDay);
 
     // The day_key stored in session_logs matches getDayKey(day) = "Jun_4"
     const todayKey = todayStr.replace(" ", "_");
