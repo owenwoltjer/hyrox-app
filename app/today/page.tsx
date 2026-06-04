@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
+import { getSupabase } from "@/lib/supabase";
 import {
   Home,
   Calendar,
@@ -217,7 +218,8 @@ export default function TodayPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
-  // ── Single effect: resolve date + fetch sessions ──────────────────────────
+  // ── Single effect: resolve date + fetch directly from Supabase ───────────
+  // Bypasses the API route and all Next.js caching — reads straight from DB.
   useEffect(() => {
     const now = new Date();
     const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
@@ -225,32 +227,27 @@ export default function TodayPage() {
     const todayKey = todayStr.replace(" ", "_");
     setClientDate(todayStr);
 
-    const url = `/api/sessions?t=${Date.now()}`;
     console.log("[TODAY] fetchSessions called");
-    console.log("[TODAY] fetch URL:", url);
-
-    fetch(url)
-      .then((res) => {
-        console.log("[TODAY] response status:", res.status);
-        return res.json();
-      })
-      .then(({ data, error }: { data: SessionLog[] | null; error: string | null }) => {
-        if (error) console.error("[TODAY] sessions API error:", error);
-        console.log("[TODAY] sessions returned:", data?.length ?? 0);
-        if (data) {
-          setSessions(data);
-          const existing = data.find((l) => l.day_key === todayKey);
-          if (existing) {
-            setTodayLog(existing);
-            setRpe(existing.rpe ?? 7);
-            setNotes(existing.notes ?? "");
-          } else {
-            setTodayLog(null);
-          }
+    (async () => {
+      const supabase = getSupabase();
+      const { data: raw, error } = await supabase
+        .from("session_logs")
+        .select("*");
+      const data = raw as SessionLog[] | null;
+      console.log("[TODAY] Supabase returned:", data?.length, "error:", error);
+      if (data) {
+        setSessions(data);
+        const existing = data.find((l) => l.day_key === todayKey);
+        if (existing) {
+          setTodayLog(existing);
+          setRpe(existing.rpe ?? 7);
+          setNotes(existing.notes ?? "");
+        } else {
+          setTodayLog(null);
         }
-      })
-      .catch((err) => console.error("[TODAY] fetch failed:", err))
-      .finally(() => setIsLoading(false));
+      }
+      setIsLoading(false);
+    })();
   }, []); // runs once on mount — window.location.href reload triggers a fresh mount
 
   // ── Derived stats ─────────────────────────────────────────────────────────

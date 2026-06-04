@@ -468,8 +468,9 @@ export default function DayDetailPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
         });
+        console.log("[DAY] POST response status:", res.status);
         const json = await res.json();
-        console.log("[DAY] POST response:", JSON.stringify(json));
+        console.log("[DAY] POST response body:", JSON.stringify(json));
         if (json.data) setExistingLog(json.data);
       } catch (err) {
         console.error("[DayDetail] upsert failed:", err);
@@ -847,10 +848,58 @@ export default function DayDetailPage() {
                 </div>
               )}
 
+              {/* Status toggle — tap the other button to switch */}
+              <div className="flex gap-3 mb-3">
+                <button
+                  onClick={async () => {
+                    if (isCompleted) return;
+                    setViewState("completed");
+                    setShowSuccessRing(true);
+                    await upsertLog("completed");
+                    setTimeout(() => { window.location.href = "/today"; }, 1200);
+                  }}
+                  disabled={isSaving}
+                  className={`flex-1 h-[48px] rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-colors ${
+                    isCompleted
+                      ? "bg-[#1D9E75] text-white cursor-default"
+                      : "bg-transparent border border-[#1D9E75] text-[#1D9E75] hover:bg-[#1D9E75]/10 active:bg-[#1D9E75]/20"
+                  }`}
+                >
+                  Mark Complete
+                  <CheckCircle2
+                    size={16}
+                    fill={isCompleted ? "white" : "none"}
+                    className={isCompleted ? "text-white" : "text-[#1D9E75]"}
+                  />
+                </button>
+                <button
+                  onClick={async () => {
+                    if (isSkipped) return;
+                    setViewState("skipped");
+                    setShowSuccessRing(true);
+                    await upsertLog("skipped");
+                    setTimeout(() => { window.location.href = "/today"; }, 1200);
+                  }}
+                  disabled={isSaving}
+                  className={`flex-1 h-[48px] rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-colors ${
+                    isSkipped
+                      ? "bg-[#D85A30] text-white cursor-default"
+                      : "bg-transparent border border-[#D85A30] text-[#D85A30] hover:bg-[#D85A30]/10 active:bg-[#D85A30]/20"
+                  }`}
+                >
+                  Skipped
+                  <XCircle
+                    size={16}
+                    fill={isSkipped ? "white" : "none"}
+                    className={isSkipped ? "text-white" : "text-[#D85A30]"}
+                  />
+                </button>
+              </div>
+
               {/* Edit log button */}
               <button
                 onClick={handleEditLog}
-                className="w-full bg-transparent border border-[#3A3A3A] text-white font-medium text-sm h-[48px] rounded-xl flex items-center justify-center gap-2 transition-colors hover:bg-[#1A1A1A] active:bg-[#2A2A2A]"
+                className="w-full bg-transparent border border-[#3A3A3A] text-white font-medium text-sm h-[44px] rounded-xl flex items-center justify-center gap-2 transition-colors hover:bg-[#1A1A1A] active:bg-[#2A2A2A]"
               >
                 Edit log <Pencil size={14} />
               </button>

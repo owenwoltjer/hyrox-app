@@ -72,6 +72,7 @@ export async function POST(request: NextRequest) {
     .single();
 
   console.log("[API] upsert result:", JSON.stringify(data), "error:", JSON.stringify(error));
+  console.log("[API] upsert complete, rows affected:", data ? 1 : 0);
   if (error) {
     return NextResponse.json({ data: null, error: error.message }, { status: 500 });
   }
