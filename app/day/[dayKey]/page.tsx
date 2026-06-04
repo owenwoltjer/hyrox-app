@@ -17,7 +17,7 @@ import {
   MessageCircle,
   Moon,
 } from "lucide-react";
-import { getDayByDate } from "@/lib/trainingData";
+import { getDayByKey, getDayKey } from "@/lib/trainingData";
 import type { SessionLog, TrainingDay, WorkoutType } from "@/lib/types";
 
 // ---------------------------------------------------------------------------
@@ -56,11 +56,17 @@ const TYPE_BORDER: Record<WorkoutType, string> = {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-function formatDayHeader(dateStr: string): string {
-  const d = new Date(dateStr + "T00:00:00");
-  const weekday = d.toLocaleDateString("en-US", { weekday: "long" });
-  const month = d.toLocaleDateString("en-US", { month: "short" });
-  return `${weekday} · ${month} ${d.getDate()}`;
+/**
+ * Format header from a TrainingDay — uses stored dow + date fields.
+ * e.g. dow="Thu", date="Jun 4" → "Thursday · Jun 4"
+ * No new Date() needed.
+ */
+function formatDayHeader(dow: string, date: string): string {
+  const FULL: Record<string, string> = {
+    Mon: "Monday", Tue: "Tuesday", Wed: "Wednesday", Thu: "Thursday",
+    Fri: "Friday", Sat: "Saturday", Sun: "Sunday",
+  };
+  return `${FULL[dow] ?? dow} · ${date}`;
 }
 
 function rpeColor(v: number): string {
@@ -289,7 +295,7 @@ function RestDayView({
   day: TrainingDay;
   onBack: () => void;
 }) {
-  const headerTitle = formatDayHeader(day.date);
+  const headerTitle = formatDayHeader(day.dow, day.date);
   return (
     <div className="flex flex-col min-h-screen bg-[#0D0D0D] text-white">
       <header className="h-[60px] flex justify-between items-center px-5 shrink-0 bg-[#0D0D0D] z-20">
@@ -346,7 +352,8 @@ export default function DayDetailPage() {
   const router = useRouter();
   const dayKey = params.dayKey as string;
 
-  const day = getDayByDate(dayKey);
+  // dayKey from URL is "Jun_4"; getDayByKey() matches against getDayKey(d) = "Jun_4"
+  const day = getDayByKey(dayKey);
 
   // ── State ──────────────────────────────────────────────────────────────────
   const [viewState, setViewState] = useState<ViewState>("logging");
@@ -525,7 +532,7 @@ export default function DayDetailPage() {
   }
 
   // ── Derive display values ──────────────────────────────────────────────────
-  const headerTitle = day ? formatDayHeader(day.date) : "…";
+  const headerTitle = day ? formatDayHeader(day.dow, day.date) : "…";
   const accentColor = day ? TYPE_BORDER[day.type] : "#1D9E75";
   const bullets = day ? getSessionBullets(day) : [];
   const coachTip = day ? getCoachTip(day) : null;

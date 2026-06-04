@@ -15,8 +15,8 @@ import { Home, Calendar, Watch, MessageCircle } from "lucide-react";
 import {
   getWeekDays,
   getWeekForDate,
-  getDayByDate,
   getDayKey,
+  getDayIndex,
   PHASE_1,
 } from "@/lib/trainingData";
 import type { TrainingDay, WorkoutType, SessionLog } from "@/lib/types";
@@ -30,18 +30,16 @@ const TYPE_COLOR: Record<WorkoutType, string> = {
   hyrox: "#1D9E75",
 };
 
-function todayDateStr(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
 export default function WeekPage() {
+  // clientDate = "Jun 4" format, set from browser in useEffect (no UTC issue)
   const [clientDate, setClientDate] = useState<string | null>(null);
   const [logs, setLogs] = useState<SessionLog[]>([]);
   const [selectedWeek, setSelectedWeek] = useState(1);
 
   useEffect(() => {
-    const d = todayDateStr();
+    const now = new Date();
+    const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    const d = `${months[now.getMonth()]} ${now.getDate()}`;
     setClientDate(d);
     setSelectedWeek(getWeekForDate(d));
     fetch("/api/sessions")
@@ -51,8 +49,11 @@ export default function WeekPage() {
   }, []);
 
   const weekDays = getWeekDays(selectedWeek);
+  // day_key in logs is "Jun_4"; getDayKey(day) is also "Jun_4"
   const logMap = new Map(logs.map((l) => [l.day_key, l]));
-  const today = clientDate ?? "";
+  // URL-safe version of today for isToday comparison
+  const todayDayKey = clientDate ? clientDate.replace(" ", "_") : null;
+  const todayIdx = clientDate ? getDayIndex(clientDate) : -1;
 
   function statusIcon(day: TrainingDay) {
     const log = logMap.get(getDayKey(day));
@@ -95,10 +96,11 @@ export default function WeekPage() {
         {/* Day list */}
         <div className="flex flex-col gap-3">
           {weekDays.map((day) => {
-            const key = getDayKey(day);
+            const key = getDayKey(day);           // "Jun_4"
             const log = logMap.get(key);
-            const isToday = key === today;
-            const isPast = key < today;
+            const thisIdx = getDayIndex(day.date);
+            const isToday = todayDayKey !== null && key === todayDayKey;
+            const isPast  = todayIdx >= 0 && thisIdx >= 0 && thisIdx < todayIdx;
             const isRest = day.type === "rest";
             const icon = statusIcon(day);
             const accentColor = TYPE_COLOR[day.type];
@@ -124,7 +126,7 @@ export default function WeekPage() {
                     <div>
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-medium text-[#9CA3AF]">
-                          {day.dow} {day.date.slice(5).replace("-", "/")}
+                          {day.dow} · {day.date}
                         </span>
                         {isToday && (
                           <span className="text-[10px] font-semibold text-[#1D9E75] uppercase tracking-wider">

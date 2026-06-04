@@ -17,6 +17,7 @@ import {
   getDayByDate,
   getWeekDays,
   getWeekForDate,
+  getDayIndex,
   getDayKey,
   PHASE_1,
 } from "@/lib/trainingData";
@@ -60,40 +61,35 @@ const TYPE_BADGE_TEXT: Record<WorkoutType, string> = {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function formatDate(dateStr: string): string {
-  const d = new Date(dateStr + "T00:00:00");
-  return d.toLocaleDateString("en-US", {
-    weekday: "long",
-    month: "short",
-    day: "numeric",
-  });
-}
-
-function todayDateStr(): string {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
+/**
+ * Format a "Mon D" date string (e.g. "Jun 4") as "Thursday, Jun 4".
+ * Builds the weekday from the training day's dow field — no new Date() needed.
+ */
+function formatDate(dateStr: string, dow?: string): string {
+  const FULL_DAYS: Record<string, string> = {
+    Mon: "Monday", Tue: "Tuesday", Wed: "Wednesday", Thu: "Thursday",
+    Fri: "Friday", Sat: "Saturday", Sun: "Sunday",
+  };
+  const weekday = dow ? (FULL_DAYS[dow] ?? dow) : "";
+  return weekday ? `${weekday}, ${dateStr}` : dateStr;
 }
 
 /**
- * Count consecutive completed days going backward from yesterday.
- * Rest days don't break the streak.
- * Accepts an explicit todayStr (YYYY-MM-DD) so it never calls new Date().
+ * Count consecutive completed days going backward from (not including) today.
+ * Uses array index comparison so "Jun 4" vs "Jul 1" strings sort correctly.
+ * Rest days are free — they don't break the streak.
  */
 function computeStreak(logs: SessionLog[], todayStr: string): number {
   const logMap = new Map(logs.map((l) => [l.day_key, l]));
+  const todayIdx = getDayIndex(todayStr);
+  if (todayIdx <= 0) return 0;
+
   let streak = 0;
-
-  // Walk backward through the phase plan, stopping before today
-  const sorted = [...PHASE_1]
-    .filter((d) => d.date < todayStr)
-    .sort((a, b) => (a.date > b.date ? -1 : 1));
-
-  for (const day of sorted) {
-    if (day.type === "rest") continue; // rest days are free
-    const log = logMap.get(day.date);
+  // Walk backwards through days before today
+  for (let i = todayIdx - 1; i >= 0; i--) {
+    const day = PHASE_1[i];
+    if (day.type === "rest") continue;
+    const log = logMap.get(getDayKey(day));
     if (log?.status === "completed" || log?.status === "modified") {
       streak++;
     } else {
@@ -203,14 +199,12 @@ function RpeSlider({
 // ---------------------------------------------------------------------------
 
 export default function TodayPage() {
-  // ── Client date — null on first SSR pass, set to local date on mount ─────
-  // IMPORTANT: never call new Date() / getTodayDay() / getCurrentWeek() at
-  // the top of this component — Next.js SSRs it on Vercel (UTC), which would
-  // give the wrong calendar date for users in non-UTC timezones.  We derive
-  // everything from clientDate which is set client-side in the first effect.
+  // ── clientDate: null during SSR, set to "Mon D" string (e.g. "Jun 4") on mount
+  // Never call new Date() outside of useEffect — Vercel SSRs in UTC which
+  // gives the wrong local date for most users.
   const [clientDate, setClientDate] = useState<string | null>(null);
 
-  // Derived from clientDate — all pure string lookups, no new Date()
+  // All lookups derived from clientDate — pure array finds, no new Date()
   const today = clientDate ? getDayByDate(clientDate) : undefined;
   const currentWeek = clientDate ? getWeekForDate(clientDate) : 1;
   const weekDays = getWeekDays(currentWeek);
@@ -224,40 +218,47 @@ export default function TodayPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
-  // ── Single effect: resolve client date + fetch sessions ──────────────────
+  // ── Single effect: resolve local date + fetch sessions ───────────────────
   useEffect(() => {
-    // todayDateStr() uses new Date() — safe here because we're in useEffect
-    // which only runs in the browser, never during SSR.
-    const dateStr = todayDateStr();
-    setClientDate(dateStr);
+    // localDateStr() calls new Date() — safe inside useEffect (browser only)
+    const now = new Date();
+    const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    const todayStr = `${months[now.getMonth()]} ${now.getDate()}`;
 
-    console.log("[HYROX] client date resolved:", dateStr);
+    setClientDate(todayStr);
+
+    // Debug: confirm what date the browser resolved and what the plan has
+    console.log("[HYROX] todayStr =", todayStr);
+    console.log("[HYROX] first 7 plan dates =", PHASE_1.slice(0, 7).map((d) => d.date));
+    const matched = PHASE_1.find((d) => d.date === todayStr);
+    console.log("[HYROX] matched training day =", matched ?? "NONE — check date format");
+
+    // The day_key stored in session_logs matches getDayKey(day) = "Jun_4"
+    const todayKey = todayStr.replace(" ", "_");
 
     fetch("/api/sessions")
       .then(async (r) => {
         const json = await r.json();
         console.log("[HYROX] GET /api/sessions →", {
           status: r.status,
-          data: json.data,
+          count: json.data?.length ?? 0,
           error: json.error,
         });
         return json;
       })
       .then(({ data, error }: { data: SessionLog[] | null; error: string | null }) => {
-        if (error) {
-          console.error("[HYROX] sessions API error:", error);
-        }
+        if (error) console.error("[HYROX] sessions API error:", error);
         if (data) {
           setAllLogs(data);
-          // Look for today's log using the just-resolved dateStr (not stale closure)
-          const existing = data.find((l) => l.day_key === dateStr);
+          // Match by URL-safe dayKey ("Jun_4"), which is what we POST when logging
+          const existing = data.find((l) => l.day_key === todayKey);
           if (existing) {
             console.log("[HYROX] found existing log for today:", existing);
             setTodayLog(existing);
             setRpe(existing.rpe ?? 7);
             setNotes(existing.notes ?? "");
           } else {
-            console.log("[HYROX] no existing log for today (", dateStr, ")");
+            console.log("[HYROX] no log yet for today (key:", todayKey, ")");
           }
         }
       })
@@ -266,9 +267,10 @@ export default function TodayPage() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Derived stats ─────────────────────────────────────────────────────────
+  // day_key in DB is "Jun_4"; getDayKey(d) returns "Jun_4" — consistent.
   const weekLogMap = new Map(
     allLogs
-      .filter((l) => weekDays.some((d) => d.date === l.day_key))
+      .filter((l) => weekDays.some((d) => getDayKey(d) === l.day_key))
       .map((l) => [l.day_key, l])
   );
 
@@ -389,24 +391,24 @@ export default function TodayPage() {
   const isSkipped = todayLog?.status === "skipped";
 
   // ── Date display ──────────────────────────────────────────────────────────
-  // Use clientDate for display — avoids UTC mismatch on server render
   const dateDisplay = clientDate
-    ? formatDate(clientDate)
+    ? formatDate(clientDate, today?.dow)
     : "Loading…";
 
   // ── Off-season guard ──────────────────────────────────────────────────────
-  // Only show "no session" AFTER clientDate has been resolved.
-  // While clientDate is null (SSR / pre-hydration) we show a loading skeleton
-  // instead of the "no session" message, preventing a flash of wrong content.
+  // Only show "no session" AFTER clientDate has been resolved (non-null).
   const isOffPlan = clientDate !== null && !today;
 
   // ── Week strip rendering ──────────────────────────────────────────────────
   function WeekPill({ day }: { day: (typeof weekDays)[0] }) {
-    const dayKey = getDayKey(day);
+    const dayKey = getDayKey(day);           // "Jun_4"
     const log = weekLogMap.get(dayKey);
-    // Use clientDate (never new Date()) for today/past comparisons
-    const isToday = clientDate !== null && dayKey === clientDate;
-    const isPast = clientDate !== null && dayKey < clientDate;
+    // clientDate is "Jun 4"; clientDayKey is "Jun_4"
+    const clientDayKey = clientDate ? clientDate.replace(" ", "_") : null;
+    const clientDayIdx = clientDate ? getDayIndex(clientDate) : -1;
+    const thisDayIdx   = getDayIndex(day.date);
+    const isToday = clientDayKey !== null && dayKey === clientDayKey;
+    const isPast  = clientDayIdx >= 0 && thisDayIdx >= 0 && thisDayIdx < clientDayIdx;
     const isCompleted =
       log?.status === "completed" || log?.status === "modified";
     const isSkippedDay = log?.status === "skipped";
