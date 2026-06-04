@@ -467,8 +467,9 @@ export default function DayDetailPage() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
         });
-        const { data } = await res.json();
-        if (data) setExistingLog(data);
+        const json = await res.json();
+        console.log("[HYROX] upsertLog response:", JSON.stringify(json));
+        if (json.data) setExistingLog(json.data);
       } catch (err) {
         console.error("[DayDetail] upsert failed:", err);
       }
@@ -478,6 +479,7 @@ export default function DayDetailPage() {
 
   // ── Handlers ───────────────────────────────────────────────────────────────
   async function handleComplete() {
+    console.log("[HYROX] handleComplete called");
     setIsSaving(true);
     // Optimistic UI
     setViewState("completed");
@@ -489,18 +491,27 @@ export default function DayDetailPage() {
     // API call (non-blocking)
     await upsertLog("completed");
     setIsSaving(false);
+    console.log("[HYROX] router.refresh() called");
     router.refresh();
-    setTimeout(() => { router.push("/today"); }, 1500);
+    setTimeout(() => {
+      console.log("[HYROX] navigating to /today");
+      router.push("/today");
+    }, 1500);
   }
 
   async function handleSkip() {
+    console.log("[HYROX] handleSkip called");
     setIsSaving(true);
     setViewState("skipped");
     setShowSuccessRing(true);
     await upsertLog("skipped");
     setIsSaving(false);
+    console.log("[HYROX] router.refresh() called");
     router.refresh();
-    setTimeout(() => { router.push("/today"); }, 1500);
+    setTimeout(() => {
+      console.log("[HYROX] navigating to /today");
+      router.push("/today");
+    }, 1500);
   }
 
   function handleEditLog() {

@@ -22,12 +22,14 @@ export async function GET(request: NextRequest) {
     query = query.eq("day_key", dayKey);
   }
 
+  console.log("[HYROX API] GET sessions called at:", new Date().toISOString());
   const { data, error } = await query;
 
   if (error) {
     return NextResponse.json({ data: null, error: error.message }, { status: 500 });
   }
 
+  console.log("[HYROX API] returning", data?.length ?? 0, "sessions");
   return NextResponse.json({ data, error: null }, {
     headers: { "Cache-Control": "no-store, no-cache, must-revalidate" },
   });
@@ -63,12 +65,14 @@ export async function POST(request: NextRequest) {
     updated_at: new Date().toISOString(),
   };
 
+  console.log("[HYROX API] POST sessions called with:", JSON.stringify(body));
   const { data, error } = await supabase
     .from("session_logs")
     .upsert(payload as any, { onConflict: "day_key" })
     .select()
     .single();
 
+  console.log("[HYROX API] upsert result:", JSON.stringify(data), "error:", JSON.stringify(error));
   if (error) {
     return NextResponse.json({ data: null, error: error.message }, { status: 500 });
   }

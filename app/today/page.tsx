@@ -221,16 +221,27 @@ export default function TodayPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
+  // ── Effect 1: log mount once ──────────────────────────────────────────────
+  useEffect(() => {
+    console.log("[HYROX] component mounted");
+  }, []);
+
+  // ── Effect 2: log every pathname change ───────────────────────────────────
+  useEffect(() => {
+    console.log("[HYROX] pathname changed:", pathname);
+  }, [pathname]);
+
   // ── Fetch sessions — cache-busted so browser never returns stale data ─────
   const fetchSessions = useCallback((todayKey: string) => {
-    console.log("[HYROX] fetchSessions called, todayKey:", todayKey);
+    console.log("[HYROX] fetchSessions called at:", new Date().toISOString());
     fetch(`/api/sessions?t=${Date.now()}`)
       .then((r) => r.json())
       .then(({ data, error }: { data: SessionLog[] | null; error: string | null }) => {
         if (error) console.error("[HYROX] sessions API error:", error);
-        console.log("[HYROX] sessions result:", data);
+        console.log("[HYROX] raw API response:", JSON.stringify(data));
         if (data) {
           setAllLogs(data);
+          console.log("[HYROX] sessions state updated:", data.length);
           const existing = data.find((l) => l.day_key === todayKey);
           if (existing) {
             setTodayLog(existing);
@@ -245,7 +256,7 @@ export default function TodayPage() {
       .finally(() => setIsLoading(false));
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Effect 1: resolve local date once on mount ────────────────────────────
+  // ── Effect 3: resolve local date once on mount ────────────────────────────
   useEffect(() => {
     const now = new Date();
     const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
@@ -257,7 +268,7 @@ export default function TodayPage() {
     console.log("[HYROX] found:", todayDay);
   }, []); // runs once
 
-  // ── Effect 2: fetch whenever clientDate resolves OR pathname changes ───────
+  // ── Effect 4: fetch whenever clientDate resolves OR pathname changes ───────
   // pathname changes every time Next.js navigates back to /today from /day/[key],
   // ensuring fresh session data even if the component stays mounted.
   useEffect(() => {
