@@ -43,7 +43,11 @@ interface TrainingPlanRow {
   type_label: string;
   session: string;
   desc: string;
+  is_rest?: boolean;  // present in JSON; stripped before DB upsert (not a table column)
 }
+
+// Only the columns that exist in the training_plan table
+type DbRow = Omit<TrainingPlanRow, "is_rest">;
 
 // ---------------------------------------------------------------------------
 // Env validation
@@ -92,9 +96,12 @@ async function seed() {
   let failed = 0;
 
   for (let i = 0; i < plan.length; i += BATCH_SIZE) {
-    const batch = plan.slice(i, i + BATCH_SIZE);
+    const rawBatch = plan.slice(i, i + BATCH_SIZE);
     const batchNum = Math.floor(i / BATCH_SIZE) + 1;
     const totalBatches = Math.ceil(plan.length / BATCH_SIZE);
+
+    // Strip is_rest — it exists in the JSON for app logic but is not a DB column
+    const batch: DbRow[] = rawBatch.map(({ is_rest: _drop, ...rest }) => rest);
 
     process.stdout.write(
       `  Batch ${batchNum}/${totalBatches} — rows ${i + 1}–${Math.min(i + BATCH_SIZE, plan.length)} ... `
