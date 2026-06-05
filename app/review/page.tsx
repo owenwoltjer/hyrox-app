@@ -215,7 +215,7 @@ export default function ReviewPage() {
         style={{ height: "100dvh" }}
       >
         {/* ── Header ── */}
-        <header className="shrink-0 h-[60px] flex justify-between items-center px-5 bg-[#0D0D0D]">
+        <header className="shrink-0 min-h-[60px] flex justify-between items-end px-5 pb-3 pt-[env(safe-area-inset-top,0px)] bg-[#0D0D0D]">
           <div className="flex flex-col gap-0.5">
             <span className="text-xs font-light tracking-wider uppercase text-[#9CA3AF]">
               HYROX Coach

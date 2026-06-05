@@ -299,7 +299,7 @@ function RestDayView({
   const headerTitle = formatDayHeader(day.dow, day.date);
   return (
     <div className="flex flex-col min-h-screen bg-[#0D0D0D] text-white">
-      <header className="h-[60px] flex justify-between items-center px-5 shrink-0 bg-[#0D0D0D] z-20">
+      <header className="min-h-[60px] flex justify-between items-end px-5 pb-3 pt-[env(safe-area-inset-top,0px)] shrink-0 bg-[#0D0D0D] z-20">
         <button
           onClick={onBack}
           className="w-10 h-10 flex items-center justify-start text-2xl text-white hover:text-[#9CA3AF] transition-colors"
@@ -602,7 +602,7 @@ export default function DayDetailPage() {
     <div className="flex flex-col min-h-screen bg-[#0D0D0D] text-white">
 
       {/* ── Header ── */}
-      <header className="h-[60px] flex justify-between items-center px-5 shrink-0 bg-[#0D0D0D] z-20">
+      <header className="min-h-[60px] flex justify-between items-end px-5 pb-3 pt-[env(safe-area-inset-top,0px)] shrink-0 bg-[#0D0D0D] z-20">
         <button
           onClick={handleBack}
           className="w-10 h-10 flex items-center justify-start text-white hover:text-[#9CA3AF] transition-colors"

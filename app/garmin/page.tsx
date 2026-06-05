@@ -140,7 +140,7 @@ export default function GarminPage() {
     const supabase = getSupabase();
     const { data, error } = await supabase
       .from("garmin_logs")
-      .upsert(payload as any, { onConflict: "date" })
+      .insert(payload as any)
       .select();
 
     console.log("[GARMIN] save result:", data, error?.message, error?.code);
@@ -229,7 +229,7 @@ export default function GarminPage() {
       <div className="flex flex-col min-h-screen bg-[#0D0D0D] text-white">
 
         {/* ── Header ── */}
-        <header className="h-[60px] flex justify-between items-center px-5 shrink-0">
+        <header className="min-h-[60px] flex justify-between items-end px-5 pb-3 pt-[env(safe-area-inset-top,0px)] shrink-0">
           <div className="flex flex-col gap-0.5">
             <span className="text-xs font-light tracking-wider uppercase text-[#9CA3AF]">
               HYROX Coach

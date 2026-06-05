@@ -117,6 +117,15 @@ create policy "anon_all_garmin_logs"
   using (true)
   with check (true);
 
+-- ---------------------------------------------------------------------------
+-- Migrations — run once in Supabase SQL Editor if the table already exists
+-- ---------------------------------------------------------------------------
+
+-- Add unique constraint on garmin_logs.date so upsert ON CONFLICT works.
+-- Safe to run even if the constraint already exists.
+ALTER TABLE public.garmin_logs
+  ADD CONSTRAINT IF NOT EXISTS garmin_logs_date_unique UNIQUE (date);
+
 -- =============================================================================
 -- Done. Both tables are created with indexes, triggers, and RLS policies.
 -- =============================================================================

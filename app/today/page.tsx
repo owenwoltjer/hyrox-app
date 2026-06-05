@@ -497,7 +497,7 @@ export default function TodayPage() {
   return (
     <div className="flex flex-col min-h-screen bg-[#0D0D0D] text-white">
       {/* ── Scrollable content ── */}
-      <main className="flex-1 overflow-y-auto px-5 pt-12 pb-28">
+      <main className="flex-1 overflow-y-auto px-5 pt-[max(48px,env(safe-area-inset-top))] pb-28">
 
         {/* 1. Header */}
         <header className="h-[60px] flex justify-between items-center mb-4">
