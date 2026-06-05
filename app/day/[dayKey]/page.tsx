@@ -500,8 +500,13 @@ export default function DayDetailPage() {
   // Reads form values from refs (not closed-over state) so the callback never
   // captures stale text even when it was last recreated before the user typed.
   const upsertLog = useCallback(
-    async (status: "done" | "skipped" | "modified") => {
+    async (status: "done" | "skipped") => {
       if (!day) return { data: null, error: { message: "No day loaded" } };
+
+      // Guard: only ever write 'done' or 'skipped' — nothing else passes the
+      // session_logs_status_check constraint on the DB.
+      const safeStatus: "done" | "skipped" =
+        status === "skipped" ? "skipped" : "done";
 
       // Read latest values from refs — guaranteed fresh regardless of when this
       // callback was last memoised.
@@ -511,7 +516,8 @@ export default function DayDetailPage() {
       const latestWeights = weightsRef.current;
 
       console.log(
-        "[DAY] saving — notes:", latestNotes,
+        "[DAY] saving — status:", safeStatus,
+        "notes:", latestNotes,
         "pace:", latestPace,
         "weights:", latestWeights,
         "rpe:", latestRpe
@@ -522,15 +528,15 @@ export default function DayDetailPage() {
         date: day.date,
         dow: day.dow,
         session: day.session,
-        status,
-        rpe: status !== "skipped" ? latestRpe : null,
-        notes: status !== "skipped" ? (latestNotes.trim() || null) : null,
+        status: safeStatus,
+        rpe: safeStatus !== "skipped" ? latestRpe : null,
+        notes: safeStatus !== "skipped" ? (latestNotes.trim() || null) : null,
         paces:
-          status !== "skipped" && latestPace.trim()
+          safeStatus !== "skipped" && latestPace.trim()
             ? { avg_pace: latestPace.trim() }
             : null,
         weights:
-          status !== "skipped" && latestWeights.trim()
+          safeStatus !== "skipped" && latestWeights.trim()
             ? { entry: latestWeights.trim() }
             : null,
         updated_at: new Date().toISOString(),
@@ -607,7 +613,11 @@ export default function DayDetailPage() {
       setAiInsight(null); // reset to re-fetch
       fetchInsight(notes, day.session);
     }
-    await upsertLog("modified");
+    // Preserve the existing status — editing a completed session keeps "done",
+    // editing a skipped session keeps "skipped". Never write "modified".
+    const editStatus: "done" | "skipped" =
+      existingLog?.status === "skipped" ? "skipped" : "done";
+    await upsertLog(editStatus);
     setIsSaving(false);
   }
 
