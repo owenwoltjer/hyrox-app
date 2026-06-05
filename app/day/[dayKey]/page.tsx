@@ -390,11 +390,13 @@ export default function DayDetailPage() {
     if (!dayKey) return;
     (async () => {
       const supabase = getSupabase();
-      const { data: logData } = await supabase
+      const { data: logData, error: fetchError } = await supabase
         .from("session_logs")
         .select("*")
         .eq("day_key", dayKey)
-        .single();                // returns null (not array) if no row — PGRST116 is ignored
+        .single(); // PGRST116 = no row found — not a real error, just means unlogged
+
+      console.log("[DAY] existing log fetched:", logData, fetchError?.code);
 
       const log = logData as SessionLog | null;
       if (log) {
@@ -403,8 +405,8 @@ export default function DayDetailPage() {
         setNotes(log.notes ?? "");
 
         // Pre-fill paces / weights — stored as { avg_pace: "4:12" } / { entry: "bench 155lb" }
-        const firstPace  = log.paces   ? Object.values(log.paces)[0]   ?? "" : "";
-        const firstWeight = log.weights ? Object.values(log.weights)[0] ?? "" : "";
+        const firstPace   = log.paces   ? Object.values(log.paces as Record<string,string>)[0]   ?? "" : "";
+        const firstWeight = log.weights ? Object.values(log.weights as Record<string,string>)[0] ?? "" : "";
         setPace(firstPace);
         setWeights(firstWeight);
         if (firstPace || firstWeight) setShowPacesWeights(true);

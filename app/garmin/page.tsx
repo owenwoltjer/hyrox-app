@@ -102,16 +102,17 @@ export default function GarminPage() {
 
   // ── Mount: resolve date + fetch all garmin logs ───────────────────────────
   useEffect(() => {
-    const now = new Date();
-    const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-    setTodayStr(`${months[now.getMonth()]} ${now.getDate()}`);
+    // "Jun 5" format — consistent with session_logs date display
+    const d = new Date();
+    setTodayStr(d.toLocaleDateString("en-US", { month: "short", day: "numeric" }));
 
     (async () => {
       const supabase = getSupabase();
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("garmin_logs")
         .select("*")
         .order("created_at", { ascending: false });
+      console.log("[GARMIN] fetched entries:", data?.length, error);
       if (data) setEntries(data as GarminEntry[]);
       setIsLoading(false);
     })();
@@ -123,27 +124,29 @@ export default function GarminPage() {
     setIsSaving(true);
     setSaveError(null);
 
-    // Use ISO date for the DB date column
+    // ISO date for the DB date column — matches unique constraint key
     const now = new Date();
     const isoDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+
+    const payload = {
+      date: isoDate,
+      sleep_score: sleepInput ? Math.min(100, Math.max(0, parseInt(sleepInput))) : null,
+      avg_hr: hrInput ? parseInt(hrInput) : null,
+      vo2_max: vo2Input ? parseFloat(parseFloat(vo2Input).toFixed(1)) : null,
+      created_at: now.toISOString(),
+    };
+    console.log("[GARMIN] saving:", payload);
 
     const supabase = getSupabase();
     const { data, error } = await supabase
       .from("garmin_logs")
-      .upsert(
-        {
-          date: isoDate,
-          sleep_score: sleepInput ? Math.min(100, Math.max(0, parseInt(sleepInput))) : null,
-          avg_hr: hrInput ? parseInt(hrInput) : null,
-          vo2_max: vo2Input ? parseFloat(parseFloat(vo2Input).toFixed(1)) : null,
-          created_at: now.toISOString(),
-        } as any,
-        { onConflict: "date" }
-      )
+      .upsert(payload as any, { onConflict: "date" })
       .select();
 
+    console.log("[GARMIN] save result:", data, error?.message, error?.code);
+
     if (error) {
-      setSaveError("Failed to save — try again");
+      setSaveError(error.message ?? "Failed to save — try again");
     } else if (data?.[0]) {
       const saved = data[0] as GarminEntry;
       setEntries((prev) => {
