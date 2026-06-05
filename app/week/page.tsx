@@ -22,28 +22,26 @@ const TYPE_COLOR: Record<WorkoutType, string> = {
 };
 
 export default function WeekPage() {
-  const [clientDate, setClientDate] = useState<string | null>(null);
+  const [clientDate, setClientDate]     = useState<string | null>(null);
   const [trainingDays, setTrainingDays] = useState<TrainingDay[]>(PHASE_1);
-  const [logs, setLogs] = useState<SessionLog[]>([]);
+  const [logs, setLogs]                 = useState<SessionLog[]>([]);
   const [selectedWeek, setSelectedWeek] = useState(1);
 
-  // ── Drag / swap state ──────────────────────────────────────────────────────
-  // dayOrder: array of day_keys in current display order for this week.
-  // Reordered locally on swap — does NOT persist to DB.
-  const [dayOrder, setDayOrder] = useState<string[]>([]);
-  const [dragFrom, setDragFrom]     = useState<number | null>(null);
-  const [dragOver, setDragOver]     = useState<number | null>(null);
-  // Mobile tap-to-select: tap a grip to select, tap another grip to swap.
+  // ── Drag / tap-to-swap state ───────────────────────────────────────────────
+  const [dragFrom, setDragFrom]           = useState<number | null>(null);
+  const [dragOver, setDragOver]           = useState<number | null>(null);
+  // Mobile: tap grip once to select, tap another to swap
   const [mobileSelected, setMobileSelected] = useState<number | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
-  // Prevents the Link from navigating immediately after a drag ends.
+  const [isSwapping, setIsSwapping]         = useState(false);
+  const [toast, setToast]                   = useState<string | null>(null);
+  // Prevents Link navigation firing right after a drag ends
   const didDragRef = useRef(false);
 
   // ── Data fetch ─────────────────────────────────────────────────────────────
   useEffect(() => {
-    const now = new Date();
+    const now    = new Date();
     const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-    const d = `${months[now.getMonth()]} ${now.getDate()}`;
+    const d      = `${months[now.getMonth()]} ${now.getDate()}`;
     setClientDate(d);
 
     (async () => {
@@ -69,44 +67,82 @@ export default function WeekPage() {
     })();
   }, []);
 
-  // ── Reset day order whenever the week or plan changes ──────────────────────
-  useEffect(() => {
-    const days = getWeekDays(selectedWeek, trainingDays);
-    setDayOrder(days.map((d) => getDayKey(d)));
-    setDragFrom(null);
-    setDragOver(null);
-    setMobileSelected(null);
-  }, [selectedWeek, trainingDays]); // eslint-disable-line react-hooks/exhaustive-deps
-
   // ── Derived values ─────────────────────────────────────────────────────────
-  const weekDays = getWeekDays(selectedWeek, trainingDays);
-  const maxWeek  = trainingDays.reduce((m, d) => Math.max(m, d.week), 1);
-  const logMap   = new Map(logs.map((l) => [l.day_key, l]));
+  // weekDays is ALWAYS in fixed calendar order (Mon → Sun) — never reordered.
+  const weekDays    = getWeekDays(selectedWeek, trainingDays);
+  const maxWeek     = trainingDays.reduce((m, d) => Math.max(m, d.week), 1);
+  const logMap      = new Map(logs.map((l) => [l.day_key, l]));
   const todayDayKey = clientDate ? clientDate.replace(" ", "_") : null;
   const todayIdx    = clientDate ? getDayIndex(clientDate, trainingDays) : -1;
 
-  // Derive orderedDays from dayOrder (fallback: natural weekDays order)
-  const orderedDays: TrainingDay[] =
-    dayOrder.length === weekDays.length
-      ? dayOrder
-          .map((key) => weekDays.find((d) => getDayKey(d) === key))
-          .filter((d): d is TrainingDay => d != null)
-      : weekDays;
-
-  // ── Swap helpers ───────────────────────────────────────────────────────────
+  // ── Toast helper ───────────────────────────────────────────────────────────
   const showToast = useCallback((msg: string) => {
     setToast(msg);
-    setTimeout(() => setToast(null), 2000);
+    setTimeout(() => setToast(null), 3000);
   }, []);
 
-  function swapDays(i: number, j: number) {
-    if (i === j) return;
-    setDayOrder((prev) => {
-      const next = [...prev];
-      [next[i], next[j]] = [next[j], next[i]];
-      return next;
-    });
-    showToast("Days swapped ✓");
+  // ── Swap handler — writes to DB, then updates local state ─────────────────
+  async function handleSwap(i: number, j: number) {
+    if (i === j || isSwapping) return;
+
+    const dayA = weekDays[i];
+    const dayB = weekDays[j];
+    const keyA = getDayKey(dayA);
+    const keyB = getDayKey(dayB);
+
+    // Capture session name before any state changes for the toast
+    const movedSession = dayA.session;
+    const toLabel      = `${dayB.dow} ${dayB.date}`;
+
+    setIsSwapping(true);
+    setMobileSelected(null);
+
+    try {
+      const res = await fetch("/api/swap-days", {
+        method:  "POST",
+        headers: { "Content-Type": "application/json" },
+        body:    JSON.stringify({ keyA, keyB }),
+      });
+      const { error } = await res.json();
+
+      if (error) {
+        console.error("[WEEK] swap error:", error);
+        showToast(`Swap failed — ${error}`);
+        return;
+      }
+
+      // ── Optimistic local update — swap session content between the two slots ──
+      // The calendar slots (dow / date / week / day_key) stay fixed.
+      // Only the workout payload moves.
+      setTrainingDays((prev) => {
+        const next = [...prev];
+        const idxA = next.findIndex((d) => getDayKey(d) === keyA);
+        const idxB = next.findIndex((d) => getDayKey(d) === keyB);
+        if (idxA < 0 || idxB < 0) return prev;
+
+        const { type: tA, typeLabel: tlA, session: sA, desc: dA } = next[idxA];
+        const { type: tB, typeLabel: tlB, session: sB, desc: dB } = next[idxB];
+
+        next[idxA] = { ...next[idxA], type: tB, typeLabel: tlB, session: sB, desc: dB };
+        next[idxB] = { ...next[idxB], type: tA, typeLabel: tlA, session: sA, desc: dA };
+        return next;
+      });
+
+      // Swap log day_keys / calendar fields in local state
+      setLogs((prev) =>
+        prev.map((log) => {
+          if (log.day_key === keyA)
+            return { ...log, day_key: keyB, date: dayB.date, dow: dayB.dow };
+          if (log.day_key === keyB)
+            return { ...log, day_key: keyA, date: dayA.date, dow: dayA.dow };
+          return log;
+        })
+      );
+
+      showToast(`✓ Moved ${movedSession} to ${toLabel}`);
+    } finally {
+      setIsSwapping(false);
+    }
   }
 
   // ── HTML5 drag handlers ────────────────────────────────────────────────────
@@ -122,7 +158,7 @@ export default function WeekPage() {
   }
 
   function onDrop(i: number) {
-    if (dragFrom !== null && dragFrom !== i) swapDays(dragFrom, i);
+    if (dragFrom !== null && dragFrom !== i) handleSwap(dragFrom, i);
     setDragFrom(null);
     setDragOver(null);
   }
@@ -130,24 +166,20 @@ export default function WeekPage() {
   function onDragEnd() {
     setDragFrom(null);
     setDragOver(null);
-    // Keep didDragRef true briefly so the Link onClick can see it.
     setTimeout(() => { didDragRef.current = false; }, 100);
   }
 
-  // ── Mobile grip tap handler ────────────────────────────────────────────────
+  // ── Mobile grip tap ────────────────────────────────────────────────────────
   function onGripTap(e: React.MouseEvent | React.TouchEvent, i: number) {
     e.stopPropagation();
     e.preventDefault();
+    if (isSwapping) return;
     if (mobileSelected === null) {
-      // First tap — select this card
       setMobileSelected(i);
     } else if (mobileSelected === i) {
-      // Second tap on same card — deselect
       setMobileSelected(null);
     } else {
-      // Second tap on different card — swap
-      swapDays(mobileSelected, i);
-      setMobileSelected(null);
+      handleSwap(mobileSelected, i);
     }
   }
 
@@ -171,10 +203,13 @@ export default function WeekPage() {
           <h1 className="text-xl font-semibold tracking-tight text-white mt-0.5">
             Week {selectedWeek}
           </h1>
-          {mobileSelected !== null && (
+          {mobileSelected !== null && !isSwapping && (
             <p className="text-xs text-[#1D9E75] mt-1">
-              Tap another day&apos;s grip <span className="opacity-70">(⠿)</span> to swap — or tap the same one to cancel
+              Tap another day&apos;s <span className="font-mono">⠿</span> handle to swap · tap same to cancel
             </p>
+          )}
+          {isSwapping && (
+            <p className="text-xs text-[#9CA3AF] mt-1 animate-pulse">Saving swap…</p>
           )}
         </header>
 
@@ -183,7 +218,7 @@ export default function WeekPage() {
           {Array.from({ length: maxWeek }, (_, i) => i + 1).map((w) => (
             <button
               key={w}
-              onClick={() => setSelectedWeek(w)}
+              onClick={() => { setSelectedWeek(w); setMobileSelected(null); }}
               className={`min-w-[40px] h-9 rounded-full text-xs font-medium transition-colors shrink-0 ${
                 w === selectedWeek
                   ? "bg-[#1D9E75] text-white"
@@ -195,9 +230,9 @@ export default function WeekPage() {
           ))}
         </div>
 
-        {/* Day list */}
+        {/* Day list — always in fixed Mon → Sun calendar order */}
         <div className="flex flex-col gap-3">
-          {orderedDays.map((day, i) => {
+          {weekDays.map((day, i) => {
             const key      = getDayKey(day);
             const log      = logMap.get(key);
             const thisIdx  = getDayIndex(day.date, trainingDays);
@@ -206,37 +241,41 @@ export default function WeekPage() {
             const isRest   = day.type === "rest";
             const icon     = statusIcon(day);
             const accent   = TYPE_COLOR[day.type];
-            const isDragging  = dragFrom === i;
-            const isDropTarget = dragOver === i && dragFrom !== null && dragFrom !== i;
+
+            const isDragging       = dragFrom === i;
+            const isDropTarget     = dragOver === i && dragFrom !== null && dragFrom !== i;
             const isMobileSelected = mobileSelected === i;
 
             return (
               <div
                 key={key}
-                draggable={!isRest}
+                draggable={!isRest && !isSwapping}
                 onDragStart={() => onDragStart(i)}
                 onDragOver={(e) => onDragOver(e, i)}
                 onDrop={() => onDrop(i)}
                 onDragEnd={onDragEnd}
                 className={[
                   "flex items-stretch bg-[#1A1A1A] rounded-2xl border transition-colors select-none",
-                  isToday    ? "border-[#1D9E75]"    : "border-[#3A3A3A]",
-                  isDropTarget ? "border-dashed !border-[#1D9E75] bg-[#0A3D2E]/20" : "",
+                  isToday      ? "border-[#1D9E75]"    : "border-[#3A3A3A]",
+                  isDropTarget ? "!border-dashed !border-[#1D9E75] bg-[#0A3D2E]/20" : "",
                   isDragging   ? "opacity-40"           : "",
                   isMobileSelected ? "ring-2 ring-[#1D9E75]" : "",
+                  isSwapping   ? "pointer-events-none opacity-70" : "",
                 ].filter(Boolean).join(" ")}
               >
-                {/* ── Drag / swap handle ── */}
+                {/* ── Drag / swap handle — visible on every card ── */}
                 <button
                   type="button"
-                  aria-label="Drag to reorder"
+                  aria-label="Swap day"
                   onMouseDown={(e) => e.stopPropagation()}
                   onClick={(e) => onGripTap(e, i)}
                   onTouchEnd={(e) => onGripTap(e, i)}
                   style={{ minWidth: "40px", flexShrink: 0 }}
                   className={[
                     "flex items-center justify-center rounded-l-2xl transition-colors h-full",
-                    isRest ? "cursor-default" : "cursor-grab active:cursor-grabbing hover:bg-[#2A2A2A]",
+                    isRest || isSwapping
+                      ? "cursor-default"
+                      : "cursor-grab active:cursor-grabbing hover:bg-[#2A2A2A]",
                     isMobileSelected ? "bg-[#1D9E75]/20" : "",
                   ].filter(Boolean).join(" ")}
                 >
@@ -252,13 +291,16 @@ export default function WeekPage() {
                 <Link
                   href={isRest ? "#" : `/day/${key}`}
                   onClick={(e) => {
-                    if (isRest || didDragRef.current) { e.preventDefault(); return; }
+                    if (isRest || didDragRef.current || isSwapping) {
+                      e.preventDefault();
+                      return;
+                    }
                   }}
                   className={`flex-1 p-4 min-w-0 ${isRest ? "cursor-default opacity-60" : ""}`}
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3 min-w-0">
-                      {/* Color dot */}
+                      {/* Workout type dot */}
                       <div
                         className="w-2 h-2 rounded-full shrink-0"
                         style={{ backgroundColor: accent }}
@@ -302,7 +344,7 @@ export default function WeekPage() {
                     ) : null}
                   </div>
 
-                  {/* RPE + notes pill */}
+                  {/* RPE + notes preview */}
                   {log?.rpe != null && (
                     <div className="mt-2 flex gap-2">
                       <span className="text-[10px] bg-[#1D9E75]/10 text-[#1D9E75] px-2 py-0.5 rounded font-medium">
