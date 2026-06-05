@@ -133,7 +133,7 @@ function buildCoachContext(sessions: SessionLog[], garmin: GarminEntry[]): strin
 
   // Session summary stats
   const completed = sessions.filter(
-    (s) => s.status === "completed" || s.status === "modified"
+    (s) => s.status === "done" || s.status === "modified"
   );
   const skipped = sessions.filter((s) => s.status === "skipped");
   const withRpe = sessions.filter((s) => s.rpe != null);

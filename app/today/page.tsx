@@ -91,7 +91,7 @@ function computeStreak(logs: SessionLog[], todayStr: string): number {
     const day = PHASE_1[i];
     if (day.type === "rest") continue;
     const log = logMap.get(getDayKey(day));
-    if (log?.status === "completed" || log?.status === "modified") {
+    if (log?.status === "done" || log?.status === "modified") {
       streak++;
     } else {
       break;
@@ -259,7 +259,7 @@ export default function TodayPage() {
   );
 
   const completedThisWeek = Array.from(weekLogMap.values()).filter(
-    (l) => l.status === "completed" || l.status === "modified"
+    (l) => l.status === "done" || l.status === "modified"
   ).length;
 
   const logsWithRpe = sessions.filter((l) => l.rpe != null);
@@ -328,14 +328,14 @@ export default function TodayPage() {
     const optimistic: SessionLog = {
       ...optimisticBase(),
       ...todayLog,
-      status: "completed",
+      status: "done",
       rpe: rpe,
       notes: notes.trim() || null,
       updated_at: new Date().toISOString(),
     };
     setTodayLog(optimistic); // optimistic update
     setIsEditing(false);
-    upsertLog({ status: "completed", rpe, notes: notes.trim() || null });
+    upsertLog({ status: "done", rpe, notes: notes.trim() || null });
   }
 
   function handleSkip() {
@@ -368,7 +368,7 @@ export default function TodayPage() {
   // ── Determine if today is logged ──────────────────────────────────────────
   const isLogged =
     todayLog != null &&
-    (todayLog.status === "completed" ||
+    (todayLog.status === "done" ||
       todayLog.status === "skipped" ||
       todayLog.status === "modified");
 
@@ -394,7 +394,7 @@ export default function TodayPage() {
     const isToday = clientDayKey !== null && dayKey === clientDayKey;
     const isPast  = clientDayIdx >= 0 && thisDayIdx >= 0 && thisDayIdx < clientDayIdx;
     const isCompleted =
-      log?.status === "completed" || log?.status === "modified";
+      log?.status === "done" || log?.status === "modified";
     const isSkippedDay = log?.status === "skipped";
     const isRestDay = day.type === "rest";
 
@@ -804,7 +804,7 @@ export default function TodayPage() {
       </main>
 
       {/* 6. Bottom Tab Bar */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-[#0D0D0D]/95 backdrop-blur-md pt-4 pb-8 px-6 border-t border-[#3A3A3A] z-50">
+      <nav className="fixed bottom-0 left-0 right-0 bg-[#0D0D0D]/95 backdrop-blur-md pt-4 px-6 border-t border-[#3A3A3A] z-50 pb-[env(safe-area-inset-bottom,32px)]">
         <div className="flex justify-between items-center max-w-md mx-auto">
           <Link
             href="/today"

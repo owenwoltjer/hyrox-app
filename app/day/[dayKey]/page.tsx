@@ -18,6 +18,7 @@ import {
   Moon,
 } from "lucide-react";
 import { getDayByKey, getDayKey, getDayIndex } from "@/lib/trainingData";
+import { getSupabase } from "@/lib/supabase";
 import type { SessionLog, TrainingDay, WorkoutType } from "@/lib/types";
 
 // ---------------------------------------------------------------------------
@@ -262,7 +263,7 @@ function RpeSlider({
 // ---------------------------------------------------------------------------
 function TabBar() {
   return (
-    <nav className="absolute bottom-0 w-full bg-[#0D0D0D]/95 backdrop-blur-md pt-4 pb-8 px-6 border-t border-[#2A2A2A] z-50">
+    <nav className="fixed bottom-0 left-0 right-0 bg-[#0D0D0D]/95 backdrop-blur-md pt-4 px-6 border-t border-[#2A2A2A] z-50 pb-[env(safe-area-inset-bottom,32px)]">
       <div className="flex justify-between items-center">
         <Link href="/today" className="flex flex-col items-center gap-1.5 text-[#1D9E75]">
           <Home size={24} fill="#1D9E75" className="drop-shadow-[0_0_8px_rgba(29,158,117,0.5)]" />
@@ -372,6 +373,7 @@ export default function DayDetailPage() {
 
   // Post-log state
   const [isSaving, setIsSaving] = useState(false);
+  const [upsertError, setUpsertError] = useState<string | null>(null);
   const [aiInsight, setAiInsight] = useState<string | null>(null);
   const [isLoadingInsight, setIsLoadingInsight] = useState(false);
   const [showSuccessRing, setShowSuccessRing] = useState(false);
@@ -403,7 +405,7 @@ export default function DayDetailPage() {
           setWeights(firstWeight);
           if (firstPace || firstWeight) setShowPacesWeights(true);
 
-          if (log.status === "completed" || log.status === "modified") {
+          if (log.status === "done" || log.status === "modified") {
             setViewState("completed");
             // fetch AI insight for existing log if notes present
             if (log.notes && day) {
@@ -440,11 +442,11 @@ export default function DayDetailPage() {
     [rpe]
   );
 
-  // ── Upsert session log ─────────────────────────────────────────────────────
+  // ── Upsert session log — direct Supabase, returns error so callers can gate navigation ──
   const upsertLog = useCallback(
-    async (status: "completed" | "skipped" | "modified") => {
-      if (!day) return;
-      const body = {
+    async (status: "done" | "skipped" | "modified") => {
+      if (!day) return { data: null, error: { message: "No day loaded" } };
+      const payload = {
         day_key: dayKey,
         date: day.date,
         dow: day.dow,
@@ -460,21 +462,21 @@ export default function DayDetailPage() {
           status !== "skipped" && weights.trim()
             ? { entry: weights.trim() }
             : null,
+        updated_at: new Date().toISOString(),
       };
-      console.log("[DAY] POST body:", JSON.stringify(body));
-      try {
-        const res = await fetch("/api/sessions", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        });
-        console.log("[DAY] POST response status:", res.status);
-        const json = await res.json();
-        console.log("[DAY] POST response body:", JSON.stringify(json));
-        if (json.data) setExistingLog(json.data);
-      } catch (err) {
-        console.error("[DayDetail] upsert failed:", err);
-      }
+      console.log("[DAY] writing status:", status, "for day:", dayKey);
+      const supabase = getSupabase();
+      const { data, error } = await supabase
+        .from("session_logs")
+        .upsert(payload as any, { onConflict: "day_key" })
+        .select()
+        .single();
+      console.log(
+        "[DAY] upsert data:", data,
+        "error:", error?.message, error?.code, error?.details
+      );
+      if (data) setExistingLog(data as SessionLog);
+      return { data, error };
     },
     [day, dayKey, rpe, notes, pace, weights]
   );
@@ -483,30 +485,44 @@ export default function DayDetailPage() {
   async function handleComplete() {
     console.log("[DAY] handleComplete called for:", dayKey);
     setIsSaving(true);
+    setUpsertError(null);
     setViewState("completed");
     setShowSuccessRing(true);
-    if (notes.trim() && day) {
-      fetchInsight(notes, day.session);
-    }
-    await upsertLog("completed");
+    if (notes.trim() && day) fetchInsight(notes, day.session);
+
+    const { error } = await upsertLog("done");
     setIsSaving(false);
-    setTimeout(() => {
-      console.log("[DAY] navigating to /today");
-      window.location.href = "/today";
-    }, 1500);
+
+    if (error) {
+      console.error("[DAY] upsert failed:", error);
+      setUpsertError("Failed to save — please try again");
+      setViewState("logging");
+      setShowSuccessRing(false);
+      return;
+    }
+    console.log("[DAY] upsert confirmed, navigating to /today");
+    setTimeout(() => { window.location.href = "/today"; }, 800);
   }
 
   async function handleSkip() {
     console.log("[DAY] handleSkip called for:", dayKey);
     setIsSaving(true);
+    setUpsertError(null);
     setViewState("skipped");
     setShowSuccessRing(true);
-    await upsertLog("skipped");
+
+    const { error } = await upsertLog("skipped");
     setIsSaving(false);
-    setTimeout(() => {
-      console.log("[DAY] navigating to /today");
-      window.location.href = "/today";
-    }, 1500);
+
+    if (error) {
+      console.error("[DAY] upsert failed:", error);
+      setUpsertError("Failed to save — please try again");
+      setViewState("logging");
+      setShowSuccessRing(false);
+      return;
+    }
+    console.log("[DAY] upsert confirmed, navigating to /today");
+    setTimeout(() => { window.location.href = "/today"; }, 800);
   }
 
   function handleEditLog() {
@@ -586,7 +602,7 @@ export default function DayDetailPage() {
       {/* ── Scrollable content ── */}
       <main
         className={`flex-1 overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none] ${
-          isLoggingOrEditing ? "pb-[200px]" : "pb-[100px]"
+          isLoggingOrEditing ? "pb-[240px]" : "pb-[120px]"
         }`}
       >
 
@@ -671,6 +687,13 @@ export default function DayDetailPage() {
             <h3 className="text-xs font-light tracking-wider uppercase text-[#9CA3AF] mb-6 ml-1">
               {viewState === "editing" ? "Update Log" : "Log Session"}
             </h3>
+
+            {/* Save error notice */}
+            {upsertError && (
+              <div className="mb-6 px-4 py-3 bg-[#3D0F0F] border border-[#D85A30]/40 rounded-xl">
+                <p className="text-xs font-medium text-[#D85A30]">{upsertError}</p>
+              </div>
+            )}
 
             {/* Amber notice for past unlogged sessions */}
             {isPast && viewState === "logging" && !existingLog && (
@@ -855,8 +878,8 @@ export default function DayDetailPage() {
                     if (isCompleted) return;
                     setViewState("completed");
                     setShowSuccessRing(true);
-                    await upsertLog("completed");
-                    setTimeout(() => { window.location.href = "/today"; }, 1200);
+                    const { error } = await upsertLog("done");
+                    if (!error) setTimeout(() => { window.location.href = "/today"; }, 800);
                   }}
                   disabled={isSaving}
                   className={`flex-1 h-[48px] rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-colors ${
@@ -877,8 +900,8 @@ export default function DayDetailPage() {
                     if (isSkipped) return;
                     setViewState("skipped");
                     setShowSuccessRing(true);
-                    await upsertLog("skipped");
-                    setTimeout(() => { window.location.href = "/today"; }, 1200);
+                    const { error } = await upsertLog("skipped");
+                    if (!error) setTimeout(() => { window.location.href = "/today"; }, 800);
                   }}
                   disabled={isSaving}
                   className={`flex-1 h-[48px] rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition-colors ${
@@ -910,7 +933,7 @@ export default function DayDetailPage() {
 
       {/* ── Pinned action buttons (only in logging / editing state) ── */}
       {showActionButtons && day && (
-        <div className="absolute bottom-[80px] left-0 w-full px-5 py-4 bg-gradient-to-t from-[#0D0D0D] via-[#0D0D0D]/95 to-transparent z-40 flex flex-col gap-3 pointer-events-none">
+        <div className="fixed bottom-[80px] left-0 right-0 px-5 py-4 bg-gradient-to-t from-[#0D0D0D] via-[#0D0D0D]/95 to-transparent z-40 flex flex-col gap-3 pointer-events-none">
           <div className="pointer-events-auto flex flex-col gap-3">
             {viewState === "editing" ? (
               <button

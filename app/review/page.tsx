@@ -45,7 +45,7 @@ function computeStreak(logs: SessionLog[], todayStr: string): number {
     const day = PHASE_1[i];
     if (day.type === "rest") continue;
     const log = logMap.get(getDayKey(day));
-    if (log?.status === "completed" || log?.status === "modified") {
+    if (log?.status === "done" || log?.status === "modified") {
       streak++;
     } else {
       break;
@@ -122,7 +122,7 @@ export default function ReviewPage() {
         const garminRows = (rawGarmin as GarminEntry[] | null) ?? [];
 
         const done = logs.filter(
-          (l) => l.status === "completed" || l.status === "modified"
+          (l) => l.status === "done" || l.status === "modified"
         );
         const withRpe = logs.filter((l) => l.rpe != null);
         const avgRpe =
@@ -347,7 +347,7 @@ export default function ReviewPage() {
           </div>
         </div>
 
-        {/* ── Input Bar ── */}
+        {/* ── Input Bar — shrink-0 stays above the fixed tab bar spacer ── */}
         <div className="shrink-0 bg-[#1A1A1A] border-t border-[#3A3A3A] px-4 py-3 flex items-center gap-3">
           <input
             ref={inputRef}
@@ -375,8 +375,11 @@ export default function ReviewPage() {
           </button>
         </div>
 
+        {/* Spacer for fixed tab bar — keeps input bar above it */}
+        <div className="shrink-0 h-[80px]" />
+
         {/* ── Tab Bar ── */}
-        <nav className="shrink-0 bg-[#0D0D0D]/95 backdrop-blur-md pt-4 pb-8 px-6 border-t border-[#3A3A3A]">
+        <nav className="fixed bottom-0 left-0 right-0 bg-[#0D0D0D]/95 backdrop-blur-md pt-4 px-6 border-t border-[#3A3A3A] z-50 pb-[env(safe-area-inset-bottom,32px)]">
           <div className="flex justify-between items-center max-w-md mx-auto">
             <Link
               href="/today"

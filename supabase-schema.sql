@@ -19,7 +19,7 @@ create table if not exists public.session_logs (
   dow         text        not null,                -- "Mon", "Tue", …
   session     text        not null,                -- session name from plan
   status      text        not null default 'planned'
-                          check (status in ('completed', 'skipped', 'modified', 'planned')),
+                          check (status in ('done', 'skipped', 'modified', 'planned')),
   rpe         smallint    check (rpe >= 1 and rpe <= 10),
   notes       text,
   paces       jsonb,                               -- { "1000m_avg": "4:12" }

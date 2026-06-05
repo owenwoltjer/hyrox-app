@@ -58,7 +58,7 @@ export default function WeekPage() {
   function statusIcon(day: TrainingDay) {
     const log = logMap.get(getDayKey(day));
     if (!log) return null;
-    if (log.status === "completed" || log.status === "modified") return "✓";
+    if (log.status === "done" || log.status === "modified") return "✓";
     if (log.status === "skipped") return "✗";
     return null;
   }
@@ -178,7 +178,7 @@ export default function WeekPage() {
       </main>
 
       {/* Tab bar */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-[#0D0D0D]/95 backdrop-blur-md pt-4 pb-8 px-6 border-t border-[#3A3A3A] z-50">
+      <nav className="fixed bottom-0 left-0 right-0 bg-[#0D0D0D]/95 backdrop-blur-md pt-4 px-6 border-t border-[#3A3A3A] z-50 pb-[env(safe-area-inset-bottom,32px)]">
         <div className="flex justify-between items-center max-w-md mx-auto">
           <Link href="/today" className="flex flex-col items-center gap-1.5 text-[#6B7280] hover:text-[#9CA3AF] transition-colors">
             <Home size={24} />

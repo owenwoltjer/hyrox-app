@@ -27,7 +27,7 @@ export interface TrainingDay {
 // Session Logs  (persisted to Supabase `session_logs` table)
 // ---------------------------------------------------------------------------
 
-export type SessionStatus = "completed" | "skipped" | "modified" | "planned";
+export type SessionStatus = "done" | "skipped" | "modified" | "planned";
 
 export interface SessionLog {
   /** UUID primary key */
