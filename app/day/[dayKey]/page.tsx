@@ -391,44 +391,67 @@ export default function DayDetailPage() {
   useEffect(() => {
     if (!dayKey) return;
     (async () => {
-      // Fetch training plan from DB (fall back to PHASE_1 on error)
+      console.log("[DAY MOUNT] dayKey:", dayKey);
+      console.log("[DAY MOUNT] fetching existing log from Supabase");
+
+      // 1. Fetch training plan — keep a local ref so we can use it immediately
+      //    without waiting for the setTrainingDays re-render.
+      let activeDays: TrainingDay[] = PHASE_1;
       try {
         const planRes = await fetch(`/api/training-plan?t=${Date.now()}`);
         if (planRes.ok) {
           const planData: TrainingDay[] = await planRes.json();
           if (Array.isArray(planData) && planData.length > 0) {
             setTrainingDays(planData);
+            activeDays = planData;
           }
         }
       } catch (err) {
-        console.warn("[DAY] training-plan fetch failed, using fallback:", err);
+        console.warn("[DAY MOUNT] training-plan fetch failed, using fallback:", err);
       }
 
+      // 2. Fetch the existing session log.
+      //    Use maybeSingle() — returns null (no error) when no row exists.
+      //    .single() throws PGRST116 on 0 rows which pollutes error handling.
       const supabase = getSupabase();
-      const { data: logData, error: fetchError } = await supabase
+      const { data: existingLogData, error: logError } = await supabase
         .from("session_logs")
         .select("*")
         .eq("day_key", dayKey)
-        .single(); // PGRST116 = no row found — not a real error, just means unlogged
+        .maybeSingle();
 
-      console.log("[DAY] existing log fetched:", logData, fetchError?.code);
+      console.log(
+        "[DAY MOUNT] existing log result:", existingLogData,
+        "error:", logError?.message, logError?.code
+      );
 
-      const log = logData as SessionLog | null;
+      // 3. Populate all form + view state from the saved log
+      const log = existingLogData as SessionLog | null;
       if (log) {
         setExistingLog(log);
         setRpe(log.rpe ?? 6);
         setNotes(log.notes ?? "");
 
         // Pre-fill paces / weights — stored as { avg_pace: "4:12" } / { entry: "bench 155lb" }
-        const firstPace   = log.paces   ? Object.values(log.paces as Record<string,string>)[0]   ?? "" : "";
-        const firstWeight = log.weights ? Object.values(log.weights as Record<string,string>)[0] ?? "" : "";
+        const firstPace   = log.paces   ? Object.values(log.paces   as Record<string, string>)[0] ?? "" : "";
+        const firstWeight = log.weights ? Object.values(log.weights as Record<string, string>)[0] ?? "" : "";
         setPace(firstPace);
         setWeights(firstWeight);
         if (firstPace || firstWeight) setShowPacesWeights(true);
 
+        console.log(
+          "[DAY MOUNT] state set — status:", log.status,
+          "rpe:", log.rpe, "notes:", log.notes
+        );
+
         if (log.status === "done" || log.status === "modified") {
           setViewState("completed");
-          if (log.notes && day) fetchInsight(log.notes, day.session);
+          // Use the locally-resolved activeDays so we don't rely on the
+          // stale `day` derived value (setTrainingDays hasn't re-rendered yet).
+          const foundDay = activeDays.find(
+            (d) => d.date.replace(" ", "_") === dayKey
+          );
+          if (log.notes && foundDay) fetchInsight(log.notes, foundDay.session);
         } else if (log.status === "skipped") {
           setViewState("skipped");
         }
