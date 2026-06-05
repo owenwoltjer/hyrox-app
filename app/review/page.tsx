@@ -347,8 +347,8 @@ export default function ReviewPage() {
           </div>
         </div>
 
-        {/* ── Input Bar — shrink-0 stays above the fixed tab bar spacer ── */}
-        <div className="shrink-0 bg-[#1A1A1A] border-t border-[#3A3A3A] px-4 py-3 flex items-center gap-3">
+        {/* ── Input Bar ── shrink-0, no fixed positioning, sits directly above tab bar ── */}
+        <div className="shrink-0 bg-[#0D0D0D] border-t border-[#3A3A3A] px-4 py-3 flex items-center gap-3">
           <input
             ref={inputRef}
             type="text"
@@ -360,11 +360,16 @@ export default function ReviewPage() {
                 sendMessage();
               }
             }}
+            onFocus={() => {
+              // Small delay so the keyboard has time to resize the viewport
+              // before we scroll — ensures the last message stays visible.
+              setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: "smooth" }), 300);
+            }}
             placeholder="Ask your coach…"
             disabled={isLoading}
             inputMode="text"
             autoComplete="off"
-            className="flex-1 bg-[#0D0D0D] text-white text-sm font-light placeholder-[#9CA3AF] rounded-full px-4 py-2.5 outline-none border border-transparent focus:border-[#7F77DD]/40 transition-colors min-w-0 disabled:opacity-50"
+            className="flex-1 bg-[#1A1A1A] text-white text-sm font-light placeholder-[#9CA3AF] rounded-full px-4 py-2.5 outline-none border border-transparent focus:border-[#7F77DD]/40 transition-colors min-w-0 disabled:opacity-50"
           />
           <button
             onClick={() => sendMessage()}
@@ -375,12 +380,9 @@ export default function ReviewPage() {
           </button>
         </div>
 
-        {/* Spacer for fixed tab bar — keeps input bar above it */}
-        <div className="shrink-0 h-[80px]" />
-
-        {/* ── Tab Bar ── */}
-        <nav className="fixed bottom-0 left-0 right-0 bg-[#0D0D0D]/95 backdrop-blur-md pt-4 px-6 border-t border-[#3A3A3A] z-50 pb-[env(safe-area-inset-bottom,32px)]">
-          <div className="flex justify-between items-center max-w-md mx-auto">
+        {/* ── Tab Bar — in flex flow, NOT fixed, so there is no gap above it ── */}
+        <nav className="shrink-0 bg-[#0D0D0D]/95 backdrop-blur-md pt-4 px-6 border-t border-[#3A3A3A] pb-[env(safe-area-inset-bottom,16px)]">
+          <div className="flex justify-between items-center">
             <Link
               href="/today"
               className="flex flex-col items-center gap-1.5 text-[#6B7280] hover:text-[#9CA3AF] transition-colors"
