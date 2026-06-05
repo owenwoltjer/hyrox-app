@@ -174,17 +174,84 @@ function buildCoachContext(sessions: SessionLog[], garmin: GarminEntry[]): strin
     }
   }
 
-  // Garmin / biometric data
-  lines.push("\n=== BIOMETRIC / GARMIN DATA ===");
+  // Garmin / biometric data — richly formatted for AI coaching
+  lines.push("\n=== GARMIN BIOMETRIC DATA ===");
   if (garmin.length === 0) {
     lines.push("No Garmin data recorded yet.");
   } else {
-    for (const g of garmin) {
-      const sleep = g.sleep_score != null ? `Sleep ${g.sleep_score}/100` : "";
-      const hr = g.avg_hr != null ? `AvgHR ${g.avg_hr}bpm` : "";
-      const vo2 = g.vo2_max != null ? `VO2max ${g.vo2_max}` : "";
-      const metrics = [sleep, hr, vo2].filter(Boolean).join(" | ");
-      lines.push(`${g.date}: ${metrics || "No metrics recorded"}`);
+    // Latest values
+    const lat = garmin[0];
+    const latSleep = lat.sleep_score != null ? String(lat.sleep_score) : "N/A";
+    const latHR    = lat.avg_hr      != null ? `${lat.avg_hr} bpm`    : "N/A";
+    const latVO2   = lat.vo2_max     != null ? String(lat.vo2_max)     : "N/A";
+    lines.push(`Latest: Sleep ${latSleep} · HR ${latHR} · VO2 ${latVO2}`);
+
+    // 7-day averages
+    const last7  = garmin.slice(0, 7);
+    const prior7 = garmin.slice(7, 14);
+    const numAvg = (arr: GarminEntry[], k: keyof GarminEntry): number | null => {
+      const vals = arr.map(e => e[k] as number | null).filter((v): v is number => v != null);
+      return vals.length ? vals.reduce((a,b) => a+b, 0) / vals.length : null;
+    };
+    const avg7Sleep = numAvg(last7,  "sleep_score");
+    const avg7HR    = numAvg(last7,  "avg_hr");
+    const avg7VO2   = numAvg(last7,  "vo2_max");
+    lines.push(`7-day avg: Sleep ${avg7Sleep?.toFixed(0) ?? "N/A"} · HR ${avg7HR?.toFixed(0) ?? "N/A"} bpm · VO2 ${avg7VO2?.toFixed(1) ?? "N/A"}`);
+
+    // Trend vs prior week
+    const avgPSleep = numAvg(prior7, "sleep_score");
+    const avgPHR    = numAvg(prior7, "avg_hr");
+    const avgPVO2   = numAvg(prior7, "vo2_max");
+    const delta = (curr: number | null, prev: number | null, lowerBetter = false): string => {
+      if (curr == null || prev == null) return "N/A";
+      const d = curr - prev;
+      const improving = lowerBetter ? d < 0 : d > 0;
+      return `${improving ? "▲" : "▼"} ${Math.abs(d).toFixed(1)} ${improving ? "(improving)" : "(declining)"}`;
+    };
+    lines.push(`Trend vs prior week: Sleep ${delta(avg7Sleep, avgPSleep)} · HR ${delta(avg7HR, avgPHR, true)} · VO2 ${delta(avg7VO2, avgPVO2)}`);
+
+    // Benchmark status
+    const sleepSt = (v: number | null): string => v == null ? "N/A" : v >= 85 ? "Excellent" : v >= 75 ? "On track" : "Below target";
+    const hrSt    = (v: number | null): string => v == null ? "N/A" : v < 50  ? "Excellent" : v <= 55  ? "On track" : "Below target";
+    const vo2St   = (v: number | null): string => v == null ? "N/A" : v >= 58 ? "Excellent" : v >= 54  ? "On track" : "Below target";
+    lines.push(`Benchmark status: Sleep ${sleepSt(lat.sleep_score)} · HR ${hrSt(lat.avg_hr)} · VO2 ${vo2St(lat.vo2_max)}`);
+
+    // Consecutive low-sleep detection
+    const consecutiveLowSleep = garmin.slice(0, 7).filter(g => (g.sleep_score ?? 100) < 70).length;
+    if (consecutiveLowSleep >= 3) {
+      lines.push(`⚠ Sleep has been under 70 for ${consecutiveLowSleep} of the last 7 days — recommend reducing next week volume by 20%`);
+    }
+    // HR trending up detection
+    const recentHR  = garmin.slice(0, 5).map(g => g.avg_hr).filter((v): v is number => v != null);
+    const hrTrending = recentHR.length >= 3 && recentHR.every((v, i) => i === 0 || v >= recentHR[i - 1]);
+    if (hrTrending) {
+      lines.push(`⚠ Resting HR has been trending upward for ${recentHR.length} consecutive days — possible overtraining, flag it`);
+    }
+
+    lines.push(`
+Sub-60 HYROX benchmark targets:
+- Sleep 75+ (elite 78–82) — Sleep under 70 = avoid hard sessions
+- Resting HR under 55 bpm (elite 48–54) — HR under 50 = excellent base
+- VO2 max 55+ (elite 54–58) — VO2 under 52 = prioritise Zone 2
+
+Interpretation (MUST USE when advising):
+- Sleep under 70 → flag recovery, suggest dropping hard session to easy
+- Sleep 70–79 → normal, proceed as planned
+- Sleep 80+ → well recovered, good day for a hard session
+- HR under 50 → excellent base, can handle high volume
+- HR 50–55 → good, maintain current load
+- HR over 55 → reduce intensity, prioritise recovery
+- VO2 under 52 → more Zone 2 work needed
+- VO2 52–55 → on track, threshold work appropriate
+- VO2 over 55 → strong base, can handle race-specific work`);
+
+    // Raw history (last 14)
+    lines.push("\nRecent entries (newest first):");
+    for (const g of garmin.slice(0, 14)) {
+      const s = g.sleep_score != null ? `Sleep ${g.sleep_score}` : "";
+      const h = g.avg_hr      != null ? `HR ${g.avg_hr}bpm`     : "";
+      const v = g.vo2_max     != null ? `VO2 ${g.vo2_max}`      : "";
+      lines.push(`  ${g.date}: ${[s, h, v].filter(Boolean).join(" · ") || "No metrics"}`);
     }
   }
 
