@@ -145,11 +145,20 @@ export function getDayByKey(dayKey: string, days: TrainingDay[] = PHASE_1): Trai
   return days.find((d) => getDayKey(d) === dayKey);
 }
 
+/** Canonical Mon → Sun display order for week views. */
+const DOW_ORDER: Record<string, number> = {
+  Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6,
+};
+
 /**
- * Returns all TrainingDays for the given week number.
+ * Returns all TrainingDays for the given week number, sorted Mon → Sun.
+ * Sorting by DOW avoids the text-date bug where "Jun 10" sorts before
+ * "Jun 8" alphabetically ("1" < "8").
  */
 export function getWeekDays(week: number, days: TrainingDay[] = PHASE_1): TrainingDay[] {
-  return days.filter((d) => d.week === week);
+  return days
+    .filter((d) => d.week === week)
+    .sort((a, b) => (DOW_ORDER[a.dow] ?? 7) - (DOW_ORDER[b.dow] ?? 7));
 }
 
 /**
