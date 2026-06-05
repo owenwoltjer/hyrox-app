@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
-import { Home, Calendar, Watch, MessageCircle, GripVertical } from "lucide-react";
+import { Home, Calendar, Watch, MessageCircle } from "lucide-react";
 import {
   getWeekDays,
   getWeekForDate,
@@ -233,15 +233,19 @@ export default function WeekPage() {
                   onMouseDown={(e) => e.stopPropagation()}
                   onClick={(e) => onGripTap(e, i)}
                   onTouchEnd={(e) => onGripTap(e, i)}
+                  style={{ minWidth: "40px", flexShrink: 0 }}
                   className={[
-                    "flex items-center justify-center w-10 shrink-0 rounded-l-2xl transition-colors",
-                    isRest
-                      ? "cursor-default opacity-30"
-                      : "cursor-grab active:cursor-grabbing hover:bg-[#2A2A2A]",
+                    "flex items-center justify-center rounded-l-2xl transition-colors h-full",
+                    isRest ? "cursor-default" : "cursor-grab active:cursor-grabbing hover:bg-[#2A2A2A]",
                     isMobileSelected ? "bg-[#1D9E75]/20" : "",
                   ].filter(Boolean).join(" ")}
                 >
-                  <GripVertical size={16} className="text-[#6B7280]" />
+                  <span
+                    className="text-xl select-none leading-none"
+                    style={{ color: "#9CA3AF", flexShrink: 0 }}
+                  >
+                    ⠿
+                  </span>
                 </button>
 
                 {/* ── Card content — tappable link ── */}
