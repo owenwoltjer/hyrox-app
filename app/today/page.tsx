@@ -22,7 +22,7 @@ import {
   getDayKey,
   PHASE_1,
 } from "@/lib/trainingData";
-import type { SessionLog, WorkoutType } from "@/lib/types";
+import type { SessionLog, TrainingDay, WorkoutType } from "@/lib/types";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -80,15 +80,14 @@ function formatDate(dateStr: string, dow?: string): string {
  * Uses array index comparison so "Jun 4" vs "Jul 1" strings sort correctly.
  * Rest days are free — they don't break the streak.
  */
-function computeStreak(logs: SessionLog[], todayStr: string): number {
+function computeStreak(logs: SessionLog[], todayStr: string, days: TrainingDay[]): number {
   const logMap = new Map(logs.map((l) => [l.day_key, l]));
-  const todayIdx = getDayIndex(todayStr);
+  const todayIdx = getDayIndex(todayStr, days);
   if (todayIdx <= 0) return 0;
 
   let streak = 0;
-  // Walk backwards through days before today
   for (let i = todayIdx - 1; i >= 0; i--) {
-    const day = PHASE_1[i];
+    const day = days[i];
     if (day.type === "rest") continue;
     const log = logMap.get(getDayKey(day));
     if (log?.status === "done" || log?.status === "modified") {
@@ -202,11 +201,12 @@ function RpeSlider({
 export default function TodayPage() {
   // ── clientDate: null during SSR, resolved on client in useEffect ──────────
   const [clientDate, setClientDate] = useState<string | null>(null);
+  const [trainingDays, setTrainingDays] = useState<TrainingDay[]>(PHASE_1);
 
-  // All lookups derived from clientDate — pure array finds, no new Date()
-  const today = clientDate ? getDayByDate(clientDate) : undefined;
-  const currentWeek = clientDate ? getWeekForDate(clientDate) : 1;
-  const weekDays = getWeekDays(currentWeek);
+  // All lookups derived from clientDate + trainingDays — pure array finds, no new Date()
+  const today = clientDate ? getDayByDate(clientDate, trainingDays) : undefined;
+  const currentWeek = clientDate ? getWeekForDate(clientDate, trainingDays) : 1;
+  const weekDays = getWeekDays(currentWeek, trainingDays);
 
   // Single sessions array — both stats bar and week strip read from this
   const [sessions, setSessions] = useState<SessionLog[]>([]);
@@ -218,8 +218,7 @@ export default function TodayPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
-  // ── Single effect: resolve date + fetch directly from Supabase ───────────
-  // Bypasses the API route and all Next.js caching — reads straight from DB.
+  // ── Single effect: resolve date + fetch training plan + session logs ──────
   useEffect(() => {
     const now = new Date();
     const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
@@ -227,8 +226,21 @@ export default function TodayPage() {
     const todayKey = todayStr.replace(" ", "_");
     setClientDate(todayStr);
 
-    console.log("[TODAY] fetchSessions called");
     (async () => {
+      // Fetch training plan from DB (fall back to PHASE_1 on error)
+      try {
+        const planRes = await fetch(`/api/training-plan?t=${Date.now()}`);
+        if (planRes.ok) {
+          const planData: TrainingDay[] = await planRes.json();
+          if (Array.isArray(planData) && planData.length > 0) {
+            setTrainingDays(planData);
+          }
+        }
+      } catch (err) {
+        console.warn("[TODAY] training-plan fetch failed, using fallback:", err);
+      }
+
+      console.log("[TODAY] fetchSessions called");
       const supabase = getSupabase();
       const { data: raw, error } = await supabase
         .from("session_logs")
@@ -271,8 +283,8 @@ export default function TodayPage() {
         ).toFixed(1)
       : "—";
 
-  // Pass clientDate so computeStreak never calls new Date() itself
-  const streak = clientDate ? computeStreak(sessions, clientDate) : 0;
+  // Pass clientDate + trainingDays so computeStreak never calls new Date() itself
+  const streak = clientDate ? computeStreak(sessions, clientDate, trainingDays) : 0;
 
   // ── Upsert helper ─────────────────────────────────────────────────────────
   const upsertLog = useCallback(
@@ -389,8 +401,8 @@ export default function TodayPage() {
     const log = weekLogMap.get(dayKey);
     // clientDate is "Jun 4"; clientDayKey is "Jun_4"
     const clientDayKey = clientDate ? clientDate.replace(" ", "_") : null;
-    const clientDayIdx = clientDate ? getDayIndex(clientDate) : -1;
-    const thisDayIdx   = getDayIndex(day.date);
+    const clientDayIdx = clientDate ? getDayIndex(clientDate, trainingDays) : -1;
+    const thisDayIdx   = getDayIndex(day.date, trainingDays);
     const isToday = clientDayKey !== null && dayKey === clientDayKey;
     const isPast  = clientDayIdx >= 0 && thisDayIdx >= 0 && thisDayIdx < clientDayIdx;
     const isCompleted =

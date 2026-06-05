@@ -17,7 +17,7 @@ import {
   MessageCircle,
   Moon,
 } from "lucide-react";
-import { getDayByKey, getDayKey, getDayIndex } from "@/lib/trainingData";
+import { getDayByKey, getDayKey, getDayIndex, PHASE_1 } from "@/lib/trainingData";
 import { getSupabase } from "@/lib/supabase";
 import type { SessionLog, TrainingDay, WorkoutType } from "@/lib/types";
 
@@ -353,8 +353,10 @@ export default function DayDetailPage() {
   const router = useRouter();
   const dayKey = params.dayKey as string;
 
+  const [trainingDays, setTrainingDays] = useState<TrainingDay[]>(PHASE_1);
+
   // dayKey from URL is "Jun_4"; getDayByKey() matches against getDayKey(d) = "Jun_4"
-  const day = getDayByKey(dayKey);
+  const day = getDayByKey(dayKey, trainingDays);
 
   // ── Client date (resolved in useEffect to avoid UTC mismatch on Vercel) ──
   const [clientDate, setClientDate] = useState<string | null>(null);
@@ -385,10 +387,23 @@ export default function DayDetailPage() {
     setClientDate(`${months[now.getMonth()]} ${now.getDate()}`);
   }, []);
 
-  // ── Fetch existing log on mount — direct Supabase, no caching ───────────
+  // ── Fetch training plan + existing log on mount ───────────────────────────
   useEffect(() => {
     if (!dayKey) return;
     (async () => {
+      // Fetch training plan from DB (fall back to PHASE_1 on error)
+      try {
+        const planRes = await fetch(`/api/training-plan?t=${Date.now()}`);
+        if (planRes.ok) {
+          const planData: TrainingDay[] = await planRes.json();
+          if (Array.isArray(planData) && planData.length > 0) {
+            setTrainingDays(planData);
+          }
+        }
+      } catch (err) {
+        console.warn("[DAY] training-plan fetch failed, using fallback:", err);
+      }
+
       const supabase = getSupabase();
       const { data: logData, error: fetchError } = await supabase
         .from("session_logs")
@@ -570,7 +585,7 @@ export default function DayDetailPage() {
   const isPast =
     clientDate !== null &&
     day !== undefined &&
-    getDayIndex(day.date) < getDayIndex(clientDate);
+    getDayIndex(day.date, trainingDays) < getDayIndex(clientDate, trainingDays);
 
   const headerTitle = day ? formatDayHeader(day.dow, day.date) : "…";
   const accentColor = day ? TYPE_BORDER[day.type] : "#1D9E75";

@@ -21,6 +21,8 @@ import {
 } from "@/lib/trainingData";
 import type { TrainingDay, WorkoutType, SessionLog } from "@/lib/types";
 
+// suppress unused-import lint — PHASE_1 is used as fallback below
+
 const TYPE_COLOR: Record<WorkoutType, string> = {
   run: "#1A6B9E",
   lift: "#7F77DD",
@@ -33,6 +35,7 @@ const TYPE_COLOR: Record<WorkoutType, string> = {
 export default function WeekPage() {
   // clientDate = "Jun 4" format, set from browser in useEffect (no UTC issue)
   const [clientDate, setClientDate] = useState<string | null>(null);
+  const [trainingDays, setTrainingDays] = useState<TrainingDay[]>(PHASE_1);
   const [logs, setLogs] = useState<SessionLog[]>([]);
   const [selectedWeek, setSelectedWeek] = useState(1);
 
@@ -41,19 +44,39 @@ export default function WeekPage() {
     const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
     const d = `${months[now.getMonth()]} ${now.getDate()}`;
     setClientDate(d);
-    setSelectedWeek(getWeekForDate(d));
-    fetch("/api/sessions")
-      .then((r) => r.json())
-      .then(({ data }) => { if (data) setLogs(data); })
-      .catch(() => {});
+
+    (async () => {
+      // Fetch training plan from DB (fall back to PHASE_1 on error)
+      let activeDays = PHASE_1;
+      try {
+        const planRes = await fetch(`/api/training-plan?t=${Date.now()}`);
+        if (planRes.ok) {
+          const planData: TrainingDay[] = await planRes.json();
+          if (Array.isArray(planData) && planData.length > 0) {
+            setTrainingDays(planData);
+            activeDays = planData;
+          }
+        }
+      } catch (err) {
+        console.warn("[WEEK] training-plan fetch failed, using fallback:", err);
+      }
+      setSelectedWeek(getWeekForDate(d, activeDays));
+
+      // Fetch session logs
+      fetch("/api/sessions")
+        .then((r) => r.json())
+        .then(({ data }) => { if (data) setLogs(data); })
+        .catch(() => {});
+    })();
   }, []);
 
-  const weekDays = getWeekDays(selectedWeek);
+  const weekDays = getWeekDays(selectedWeek, trainingDays);
+  const maxWeek = trainingDays.reduce((m, d) => Math.max(m, d.week), 1);
   // day_key in logs is "Jun_4"; getDayKey(day) is also "Jun_4"
   const logMap = new Map(logs.map((l) => [l.day_key, l]));
   // URL-safe version of today for isToday comparison
   const todayDayKey = clientDate ? clientDate.replace(" ", "_") : null;
-  const todayIdx = clientDate ? getDayIndex(clientDate) : -1;
+  const todayIdx = clientDate ? getDayIndex(clientDate, trainingDays) : -1;
 
   function statusIcon(day: TrainingDay) {
     const log = logMap.get(getDayKey(day));
@@ -78,7 +101,7 @@ export default function WeekPage() {
 
         {/* Week selector */}
         <div className="flex gap-2 mb-6 overflow-x-auto [&::-webkit-scrollbar]:hidden pb-1">
-          {Array.from({ length: 8 }, (_, i) => i + 1).map((w) => (
+          {Array.from({ length: maxWeek }, (_, i) => i + 1).map((w) => (
             <button
               key={w}
               onClick={() => setSelectedWeek(w)}
@@ -98,7 +121,7 @@ export default function WeekPage() {
           {weekDays.map((day) => {
             const key = getDayKey(day);           // "Jun_4"
             const log = logMap.get(key);
-            const thisIdx = getDayIndex(day.date);
+            const thisIdx = getDayIndex(day.date, trainingDays);
             const isToday = todayDayKey !== null && key === todayDayKey;
             const isPast  = todayIdx >= 0 && thisIdx >= 0 && thisIdx < todayIdx;
             const isRest = day.type === "rest";

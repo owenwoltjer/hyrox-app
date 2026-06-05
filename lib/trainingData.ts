@@ -134,42 +134,41 @@ export function dateFromDayKey(dayKey: string): string {
 /**
  * Find a training day by its "Mon D" date string (e.g. "Jun 4").
  */
-export function getDayByDate(dateStr: string): TrainingDay | undefined {
-  return PHASE_1.find((d) => d.date === dateStr);
+export function getDayByDate(dateStr: string, days: TrainingDay[] = PHASE_1): TrainingDay | undefined {
+  return days.find((d) => d.date === dateStr);
 }
 
 /**
  * Find a training day by its URL-safe dayKey (e.g. "Jun_4").
  */
-export function getDayByKey(dayKey: string): TrainingDay | undefined {
-  return PHASE_1.find((d) => getDayKey(d) === dayKey);
+export function getDayByKey(dayKey: string, days: TrainingDay[] = PHASE_1): TrainingDay | undefined {
+  return days.find((d) => getDayKey(d) === dayKey);
 }
 
 /**
- * Returns all TrainingDays for the given week number (1–8).
+ * Returns all TrainingDays for the given week number.
  */
-export function getWeekDays(week: number): TrainingDay[] {
-  return PHASE_1.filter((d) => d.week === week);
+export function getWeekDays(week: number, days: TrainingDay[] = PHASE_1): TrainingDay[] {
+  return days.filter((d) => d.week === week);
 }
 
 /**
  * Returns the week number for a given "Mon D" date string.
  * Falls back to 1 if the date is outside the plan.
  */
-export function getWeekForDate(dateStr: string): number {
-  const day = PHASE_1.find((d) => d.date === dateStr);
+export function getWeekForDate(dateStr: string, days: TrainingDay[] = PHASE_1): number {
+  const day = days.find((d) => d.date === dateStr);
   if (day) return day.week;
-  // Before plan or not found → default to week 1
   return 1;
 }
 
 /**
- * Returns the array index of a date string in PHASE_1 (-1 if not found).
+ * Returns the array index of a date string (-1 if not found).
  * Use this for "is past / is future" comparisons instead of string comparison,
  * since "Jun 4" strings aren't naturally sortable across months.
  */
-export function getDayIndex(dateStr: string): number {
-  return PHASE_1.findIndex((d) => d.date === dateStr);
+export function getDayIndex(dateStr: string, days: TrainingDay[] = PHASE_1): number {
+  return days.findIndex((d) => d.date === dateStr);
 }
 
 // ---------------------------------------------------------------------------
