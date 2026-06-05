@@ -16,8 +16,17 @@ import {
   Watch,
   MessageCircle,
   Moon,
+  ArrowRightLeft,
+  X,
 } from "lucide-react";
-import { getDayByKey, getDayKey, getDayIndex, PHASE_1 } from "@/lib/trainingData";
+import {
+  getDayByKey,
+  getDayKey,
+  getDayIndex,
+  getWeekDays,
+  getWeekForDate,
+  PHASE_1,
+} from "@/lib/trainingData";
 import { getSupabase } from "@/lib/supabase";
 import type { SessionLog, TrainingDay, WorkoutType } from "@/lib/types";
 
@@ -373,6 +382,12 @@ export default function DayDetailPage() {
   const [weights, setWeights] = useState("");
   const [showPacesWeights, setShowPacesWeights] = useState(false);
 
+  // ── "Move to another day" dialog state ────────────────────────────────────
+  const [showMoveDialog, setShowMoveDialog] = useState(false);
+  const [moveTargetKey, setMoveTargetKey]   = useState<string | null>(null);
+  const [isMoving, setIsMoving]             = useState(false);
+  const [moveError, setMoveError]           = useState<string | null>(null);
+
   // Refs that always hold the latest form values — used inside upsertLog so the
   // useCallback closure never captures stale state from an earlier render.
   const rpeRef     = useRef(6);
@@ -619,6 +634,57 @@ export default function DayDetailPage() {
       existingLog?.status === "skipped" ? "skipped" : "done";
     await upsertLog(editStatus);
     setIsSaving(false);
+  }
+
+  // ── Move log to a different day_key ───────────────────────────────────────
+  async function handleMoveLog() {
+    if (!moveTargetKey || !existingLog) return;
+    const targetDay = trainingDays.find(
+      (d) => d.date.replace(" ", "_") === moveTargetKey
+    );
+    if (!targetDay) return;
+
+    setIsMoving(true);
+    setMoveError(null);
+
+    const supabase = getSupabase();
+
+    // Build new log payload for the target day
+    const { id: _drop, ...logWithoutId } = existingLog;
+    const newPayload = {
+      ...logWithoutId,
+      day_key: moveTargetKey,
+      date: targetDay.date,
+      dow: targetDay.dow,
+      session: targetDay.session,
+      updated_at: new Date().toISOString(),
+    };
+
+    // Upsert at new day_key
+    const { error: upsertErr } = await supabase
+      .from("session_logs")
+      .upsert(newPayload as any, { onConflict: "day_key" });
+
+    if (upsertErr) {
+      setMoveError("Failed to move — " + upsertErr.message);
+      setIsMoving(false);
+      return;
+    }
+
+    // Delete from original day_key
+    const { error: deleteErr } = await supabase
+      .from("session_logs")
+      .delete()
+      .eq("day_key", dayKey);
+
+    if (deleteErr) {
+      setMoveError("Moved but couldn't remove original — " + deleteErr.message);
+      setIsMoving(false);
+      return;
+    }
+
+    // Done — go home
+    window.location.href = "/today";
   }
 
   function handleBack() {
@@ -1053,12 +1119,104 @@ export default function DayDetailPage() {
               {/* Edit log button */}
               <button
                 onClick={handleEditLog}
-                className="w-full bg-transparent border border-[#3A3A3A] text-white font-medium text-sm h-[44px] rounded-xl flex items-center justify-center gap-2 transition-colors hover:bg-[#1A1A1A] active:bg-[#2A2A2A]"
+                className="w-full bg-transparent border border-[#3A3A3A] text-white font-medium text-sm h-[44px] rounded-xl flex items-center justify-center gap-2 transition-colors hover:bg-[#1A1A1A] active:bg-[#2A2A2A] mb-2"
               >
                 Edit log <Pencil size={14} />
               </button>
+
+              {/* Move to different day */}
+              {existingLog && (
+                <button
+                  onClick={() => { setShowMoveDialog(true); setMoveTargetKey(null); setMoveError(null); }}
+                  className="w-full bg-transparent border border-[#3A3A3A] text-[#9CA3AF] font-medium text-sm h-[44px] rounded-xl flex items-center justify-center gap-2 transition-colors hover:bg-[#1A1A1A] hover:text-white active:bg-[#2A2A2A]"
+                >
+                  Move to another day <ArrowRightLeft size={14} />
+                </button>
+              )}
             </section>
           </>
+        )}
+
+        {/* ── Move log dialog ── */}
+        {showMoveDialog && day && (
+          <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm">
+            <div className="w-full max-w-md bg-[#141414] rounded-t-3xl p-6 pb-[calc(24px+env(safe-area-inset-bottom,0px))]">
+              {/* Header */}
+              <div className="flex items-center justify-between mb-5">
+                <h2 className="text-base font-semibold text-white">Move this log to…</h2>
+                <button
+                  onClick={() => setShowMoveDialog(false)}
+                  className="w-8 h-8 flex items-center justify-center rounded-full bg-[#2A2A2A] text-[#9CA3AF] hover:text-white transition-colors"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+
+              <p className="text-xs font-light text-[#9CA3AF] mb-4 leading-relaxed">
+                This copies your log (RPE, notes, paces) to the chosen day and removes it from{" "}
+                <span className="text-white">{day.dow} {day.date}</span>. Useful when you trained on a different day than planned.
+              </p>
+
+              {/* Day picker — other days in same week, excluding rest and current */}
+              {(() => {
+                const currentWeek = getWeekForDate(day.date, trainingDays);
+                const weekDays    = getWeekDays(currentWeek, trainingDays);
+                const options     = weekDays.filter(
+                  (d) => d.type !== "rest" && getDayKey(d) !== dayKey
+                );
+                return (
+                  <div className="flex flex-col gap-2 mb-5">
+                    {options.length === 0 ? (
+                      <p className="text-sm text-[#6B7280] text-center py-3">
+                        No other workout days this week.
+                      </p>
+                    ) : (
+                      options.map((d) => {
+                        const k      = getDayKey(d);
+                        const chosen = moveTargetKey === k;
+                        return (
+                          <button
+                            key={k}
+                            onClick={() => setMoveTargetKey(chosen ? null : k)}
+                            className={`flex items-center gap-3 p-3 rounded-xl border text-left transition-colors ${
+                              chosen
+                                ? "border-[#1D9E75] bg-[#0A3D2E]/30"
+                                : "border-[#2A2A2A] bg-[#1A1A1A] hover:border-[#3A3A3A]"
+                            }`}
+                          >
+                            <div
+                              className="w-2 h-2 rounded-full shrink-0"
+                              style={{ backgroundColor: "#1A6B9E" }}
+                            />
+                            <div className="flex-1 min-w-0">
+                              <span className="text-xs text-[#9CA3AF]">{d.dow} · {d.date}</span>
+                              <p className="text-sm font-medium text-white truncate">{d.session}</p>
+                            </div>
+                            {chosen && (
+                              <CheckCircle2 size={16} className="text-[#1D9E75] shrink-0" fill="#1D9E75" />
+                            )}
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                );
+              })()}
+
+              {moveError && (
+                <p className="text-xs text-[#D85A30] mb-3">{moveError}</p>
+              )}
+
+              <button
+                onClick={handleMoveLog}
+                disabled={!moveTargetKey || isMoving}
+                className="w-full h-[52px] bg-[#1D9E75] text-white font-semibold text-sm rounded-xl flex items-center justify-center gap-2 transition-opacity hover:opacity-90 disabled:opacity-40"
+              >
+                {isMoving ? "Moving…" : "Move log"}
+                <ArrowRightLeft size={16} />
+              </button>
+            </div>
+          </div>
         )}
       </main>
 
