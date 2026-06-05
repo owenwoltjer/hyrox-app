@@ -373,6 +373,13 @@ export default function DayDetailPage() {
   const [weights, setWeights] = useState("");
   const [showPacesWeights, setShowPacesWeights] = useState(false);
 
+  // Refs that always hold the latest form values — used inside upsertLog so the
+  // useCallback closure never captures stale state from an earlier render.
+  const rpeRef     = useRef(6);
+  const notesRef   = useRef("");
+  const paceRef    = useRef("");
+  const weightsRef = useRef("");
+
   // Post-log state
   const [isSaving, setIsSaving] = useState(false);
   const [upsertError, setUpsertError] = useState<string | null>(null);
@@ -429,12 +436,19 @@ export default function DayDetailPage() {
       const log = existingLogData as SessionLog | null;
       if (log) {
         setExistingLog(log);
-        setRpe(log.rpe ?? 6);
-        setNotes(log.notes ?? "");
+
+        const savedRpe  = log.rpe ?? 6;
+        const savedNotes = log.notes ?? "";
+        rpeRef.current   = savedRpe;
+        notesRef.current = savedNotes;
+        setRpe(savedRpe);
+        setNotes(savedNotes);
 
         // Pre-fill paces / weights — stored as { avg_pace: "4:12" } / { entry: "bench 155lb" }
         const firstPace   = log.paces   ? Object.values(log.paces   as Record<string, string>)[0] ?? "" : "";
         const firstWeight = log.weights ? Object.values(log.weights as Record<string, string>)[0] ?? "" : "";
+        paceRef.current    = firstPace;
+        weightsRef.current = firstWeight;
         setPace(firstPace);
         setWeights(firstWeight);
         if (firstPace || firstWeight) setShowPacesWeights(true);
@@ -483,28 +497,45 @@ export default function DayDetailPage() {
   );
 
   // ── Upsert session log — direct Supabase, returns error so callers can gate navigation ──
+  // Reads form values from refs (not closed-over state) so the callback never
+  // captures stale text even when it was last recreated before the user typed.
   const upsertLog = useCallback(
     async (status: "done" | "skipped" | "modified") => {
       if (!day) return { data: null, error: { message: "No day loaded" } };
+
+      // Read latest values from refs — guaranteed fresh regardless of when this
+      // callback was last memoised.
+      const latestRpe     = rpeRef.current;
+      const latestNotes   = notesRef.current;
+      const latestPace    = paceRef.current;
+      const latestWeights = weightsRef.current;
+
+      console.log(
+        "[DAY] saving — notes:", latestNotes,
+        "pace:", latestPace,
+        "weights:", latestWeights,
+        "rpe:", latestRpe
+      );
+
       const payload = {
         day_key: dayKey,
         date: day.date,
         dow: day.dow,
         session: day.session,
         status,
-        rpe: status !== "skipped" ? rpe : null,
-        notes: status !== "skipped" ? (notes.trim() || null) : null,
+        rpe: status !== "skipped" ? latestRpe : null,
+        notes: status !== "skipped" ? (latestNotes.trim() || null) : null,
         paces:
-          status !== "skipped" && pace.trim()
-            ? { avg_pace: pace.trim() }
+          status !== "skipped" && latestPace.trim()
+            ? { avg_pace: latestPace.trim() }
             : null,
         weights:
-          status !== "skipped" && weights.trim()
-            ? { entry: weights.trim() }
+          status !== "skipped" && latestWeights.trim()
+            ? { entry: latestWeights.trim() }
             : null,
         updated_at: new Date().toISOString(),
       };
-      console.log("[DAY] writing status:", status, "for day:", dayKey);
+
       const supabase = getSupabase();
       const { data, error } = await supabase
         .from("session_logs")
@@ -512,13 +543,13 @@ export default function DayDetailPage() {
         .select()
         .single();
       console.log(
-        "[DAY] upsert data:", data,
+        "[DAY] upsert result — data:", data,
         "error:", error?.message, error?.code, error?.details
       );
       if (data) setExistingLog(data as SessionLog);
       return { data, error };
     },
-    [day, dayKey, rpe, notes, pace, weights]
+    [day, dayKey] // rpe/notes/pace/weights removed — read from refs instead
   );
 
   // ── Handlers ───────────────────────────────────────────────────────────────
@@ -745,13 +776,13 @@ export default function DayDetailPage() {
             )}
 
             {/* Large RPE Slider */}
-            <RpeSlider value={rpe} onChange={setRpe} />
+            <RpeSlider value={rpe} onChange={(v) => { rpeRef.current = v; setRpe(v); }} />
 
             {/* Notes Textarea */}
             <div className="mb-4">
               <textarea
                 value={notes}
-                onChange={(e) => setNotes(e.target.value)}
+                onChange={(e) => { notesRef.current = e.target.value; setNotes(e.target.value); }}
                 placeholder="Describe what you actually did…"
                 className="bg-[#1A1A1A] border border-[#2A2A2A] focus:border-[#1D9E75] rounded-xl px-4 py-3.5 text-sm font-light text-white placeholder-[#6B7280] w-full h-[80px] outline-none transition-colors resize-none"
               />
@@ -782,7 +813,7 @@ export default function DayDetailPage() {
                   <input
                     type="text"
                     value={pace}
-                    onChange={(e) => setPace(e.target.value)}
+                    onChange={(e) => { paceRef.current = e.target.value; setPace(e.target.value); }}
                     placeholder="e.g. 4:12/km"
                     className="bg-[#1A1A1A] border border-[#2A2A2A] focus:border-[#1D9E75] rounded-xl px-4 py-3.5 text-sm font-light text-white placeholder-[#6B7280] w-full outline-none transition-colors"
                   />
@@ -794,7 +825,7 @@ export default function DayDetailPage() {
                   <input
                     type="text"
                     value={weights}
-                    onChange={(e) => setWeights(e.target.value)}
+                    onChange={(e) => { weightsRef.current = e.target.value; setWeights(e.target.value); }}
                     placeholder="e.g. bench 155lb"
                     className="bg-[#1A1A1A] border border-[#2A2A2A] focus:border-[#1D9E75] rounded-xl px-4 py-3.5 text-sm font-light text-white placeholder-[#6B7280] w-full outline-none transition-colors"
                   />
