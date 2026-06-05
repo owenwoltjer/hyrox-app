@@ -147,26 +147,30 @@ function buildCoachContext(sessions: SessionLog[], garmin: GarminEntry[]): strin
   lines.push(`Completed: ${completed.length}  |  Skipped: ${skipped.length}`);
   lines.push(`Average RPE: ${avgRpe}`);
 
-  // Individual session logs
+  // Individual session logs — each with notes/paces/weights on their own line
   lines.push("\n=== SESSION LOGS (chronological) ===");
   if (sessions.length === 0) {
     lines.push("No sessions logged yet.");
   } else {
     for (const s of sessions) {
-      const rpe = s.rpe != null ? `RPE ${s.rpe}` : "RPE not recorded";
-      const status = s.status ?? "planned";
-      const notes = s.notes ? ` | Notes: "${s.notes}"` : "";
-      const paces =
-        s.paces && Object.keys(s.paces).length > 0
-          ? ` | Paces: ${JSON.stringify(s.paces)}`
-          : "";
-      const weights =
-        s.weights && Object.keys(s.weights).length > 0
-          ? ` | Weights: ${JSON.stringify(s.weights)}`
-          : "";
-      lines.push(
-        `${s.date} (${s.dow}) — ${s.session} [${status}] — ${rpe}${notes}${paces}${weights}`
-      );
+      const statusLabel =
+        s.status === "done"     ? "DONE"    :
+        s.status === "skipped"  ? "SKIPPED" :
+        s.status === "modified" ? "EDITED"  :
+        "PLANNED";
+      const rpeStr = s.rpe != null ? `RPE ${s.rpe}` : "RPE not recorded";
+      lines.push(`${s.dow} ${s.date} — ${s.session} [${statusLabel}] ${rpeStr}`);
+      if (s.notes) {
+        lines.push(`  Notes: "${s.notes}"`);
+      }
+      const paceVal = s.paces && typeof s.paces === "object"
+        ? Object.values(s.paces as Record<string, string>)[0]
+        : typeof s.paces === "string" ? s.paces : null;
+      if (paceVal) lines.push(`  Pace: ${paceVal}`);
+      const weightVal = s.weights && typeof s.weights === "object"
+        ? Object.values(s.weights as Record<string, string>)[0]
+        : typeof s.weights === "string" ? s.weights : null;
+      if (weightVal) lines.push(`  Weights: ${weightVal}`);
     }
   }
 

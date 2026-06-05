@@ -385,39 +385,39 @@ export default function DayDetailPage() {
     setClientDate(`${months[now.getMonth()]} ${now.getDate()}`);
   }, []);
 
-  // ── Fetch existing log on mount ────────────────────────────────────────────
+  // ── Fetch existing log on mount — direct Supabase, no caching ───────────
   useEffect(() => {
     if (!dayKey) return;
-    fetch(`/api/sessions?day_key=${encodeURIComponent(dayKey)}`)
-      .then((r) => r.json())
-      .then(({ data }: { data: SessionLog[] | null }) => {
-        const log = data?.[0] ?? null;
-        if (log) {
-          setExistingLog(log);
-          setRpe(log.rpe ?? 6);
-          setNotes(log.notes ?? "");
-          // pre-fill paces / weights from stored JSON keys
-          const firstPace = log.paces ? Object.values(log.paces)[0] ?? "" : "";
-          const firstWeight = log.weights
-            ? Object.values(log.weights)[0] ?? ""
-            : "";
-          setPace(firstPace);
-          setWeights(firstWeight);
-          if (firstPace || firstWeight) setShowPacesWeights(true);
+    (async () => {
+      const supabase = getSupabase();
+      const { data: logData } = await supabase
+        .from("session_logs")
+        .select("*")
+        .eq("day_key", dayKey)
+        .single();                // returns null (not array) if no row — PGRST116 is ignored
 
-          if (log.status === "done" || log.status === "modified") {
-            setViewState("completed");
-            // fetch AI insight for existing log if notes present
-            if (log.notes && day) {
-              fetchInsight(log.notes, day.session);
-            }
-          } else if (log.status === "skipped") {
-            setViewState("skipped");
-          }
+      const log = logData as SessionLog | null;
+      if (log) {
+        setExistingLog(log);
+        setRpe(log.rpe ?? 6);
+        setNotes(log.notes ?? "");
+
+        // Pre-fill paces / weights — stored as { avg_pace: "4:12" } / { entry: "bench 155lb" }
+        const firstPace  = log.paces   ? Object.values(log.paces)[0]   ?? "" : "";
+        const firstWeight = log.weights ? Object.values(log.weights)[0] ?? "" : "";
+        setPace(firstPace);
+        setWeights(firstWeight);
+        if (firstPace || firstWeight) setShowPacesWeights(true);
+
+        if (log.status === "done" || log.status === "modified") {
+          setViewState("completed");
+          if (log.notes && day) fetchInsight(log.notes, day.session);
+        } else if (log.status === "skipped") {
+          setViewState("skipped");
         }
-      })
-      .catch((err) => console.error("[DayDetail] fetch sessions:", err))
-      .finally(() => setIsLoading(false));
+      }
+      setIsLoading(false);
+    })();
   }, [dayKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── AI Insight ─────────────────────────────────────────────────────────────
@@ -779,30 +779,80 @@ export default function DayDetailPage() {
         {/* ─────────────────────────────────────────────────────────────────── */}
         {(isCompleted || isSkipped) && (
           <>
-            {/* Your Log — read-only summary */}
-            {existingLog && !isSkipped && (
+            {/* Your Log — rich read-only summary, shown for both completed & skipped */}
+            {existingLog && (
               <section className="mt-8 px-5">
-                <h3 className="text-xs font-light tracking-wider uppercase text-[#9CA3AF] mb-4 ml-1">
+                <h3 className="text-xs font-light tracking-wider uppercase text-[#9CA3AF] mb-3 ml-1">
                   Your Log
                 </h3>
-                <div className="bg-[#1A1A1A] rounded-2xl p-4 border border-[#2A2A2A]">
-                  <div className="flex items-center gap-2 mb-3">
-                    {existingLog.rpe != null && (
-                      <span className="bg-[#1D9E75]/20 text-[#1D9E75] px-2 py-1 rounded text-sm font-semibold tracking-tight">
-                        {existingLog.rpe} RPE
-                      </span>
-                    )}
-                    {existingLog.paces &&
-                      Object.values(existingLog.paces)[0] && (
-                        <span className="text-xs font-medium text-[#9CA3AF]">
-                          {Object.values(existingLog.paces)[0]}
+                <div className="bg-[#1A1A1A] rounded-xl border border-[#2A2A2A] overflow-hidden">
+
+                  {/* RPE row */}
+                  {existingLog.rpe != null && (
+                    <div className="px-4 pt-4 pb-3 border-b border-[#2A2A2A]">
+                      <p className="text-[10px] font-medium tracking-wider uppercase text-[#9CA3AF] mb-1.5">
+                        RPE
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="px-2.5 py-1 rounded text-sm font-semibold"
+                          style={{
+                            backgroundColor: isSkipped ? "rgba(216,90,48,0.15)" : "rgba(29,158,117,0.15)",
+                            color: isSkipped ? "#D85A30" : "#1D9E75",
+                          }}
+                        >
+                          {existingLog.rpe}
                         </span>
-                      )}
-                  </div>
+                        <span className="text-xs font-light text-[#9CA3AF]">
+                          {rpeLabel(existingLog.rpe)}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Notes row */}
                   {existingLog.notes && (
-                    <p className="text-sm font-light text-white leading-relaxed">
-                      {existingLog.notes}
-                    </p>
+                    <div className="px-4 pt-3 pb-3 border-b border-[#2A2A2A]">
+                      <p className="text-[10px] font-medium tracking-wider uppercase text-[#9CA3AF] mb-1.5">
+                        Your Notes
+                      </p>
+                      <p className="text-sm font-light text-white leading-relaxed whitespace-pre-wrap">
+                        {existingLog.notes}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Paces row */}
+                  {existingLog.paces && Object.values(existingLog.paces)[0] && (
+                    <div className="px-4 pt-3 pb-3 border-b border-[#2A2A2A]">
+                      <p className="text-[10px] font-medium tracking-wider uppercase text-[#9CA3AF] mb-1.5">
+                        Pace
+                      </p>
+                      <p className="text-sm font-light text-white">
+                        {Object.values(existingLog.paces)[0]}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Weights row */}
+                  {existingLog.weights && Object.values(existingLog.weights)[0] && (
+                    <div className="px-4 pt-3 pb-4">
+                      <p className="text-[10px] font-medium tracking-wider uppercase text-[#9CA3AF] mb-1.5">
+                        Weights
+                      </p>
+                      <p className="text-sm font-light text-white">
+                        {Object.values(existingLog.weights)[0]}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Fallback when nothing was logged (skipped with no data) */}
+                  {!existingLog.rpe && !existingLog.notes && !existingLog.paces && !existingLog.weights && (
+                    <div className="px-4 py-4">
+                      <p className="text-sm font-light text-[#9CA3AF]">
+                        {isSkipped ? "Session skipped — no data recorded." : "No data recorded."}
+                      </p>
+                    </div>
                   )}
                 </div>
               </section>
