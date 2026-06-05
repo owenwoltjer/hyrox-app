@@ -35,19 +35,28 @@ if (existsSync(envPath)) {
 // ---------------------------------------------------------------------------
 interface TrainingPlanRow {
   day_key: string;
-  phase: number;
-  week: number;
+  phase: number;   // not a DB column — stripped
+  week: number;    // DB column is week_number
   dow: string;
   date: string;
   type: string;
   type_label: string;
-  session: string;
-  desc: string;
-  is_rest?: boolean;  // present in JSON; stripped before DB upsert (not a table column)
+  session: string; // DB column is session_name
+  desc: string;    // DB column is description
+  is_rest?: boolean; // not a DB column — stripped
 }
 
-// Only the columns that exist in the training_plan table
-type DbRow = Omit<TrainingPlanRow, "is_rest">;
+// Shape sent to Supabase
+interface DbRow {
+  day_key: string;
+  week_number: number;
+  dow: string;
+  date: string;
+  type: string;
+  type_label: string;
+  session_name: string;
+  description: string;
+}
 
 // ---------------------------------------------------------------------------
 // Env validation
@@ -100,8 +109,17 @@ async function seed() {
     const batchNum = Math.floor(i / BATCH_SIZE) + 1;
     const totalBatches = Math.ceil(plan.length / BATCH_SIZE);
 
-    // Strip is_rest — it exists in the JSON for app logic but is not a DB column
-    const batch: DbRow[] = rawBatch.map(({ is_rest: _drop, ...rest }) => rest);
+    // Map JSON fields → DB column names; strip phase and is_rest (not DB columns)
+    const batch: DbRow[] = rawBatch.map((row) => ({
+      day_key: row.day_key,
+      week_number: row.week,
+      dow: row.dow,
+      date: row.date,
+      type: row.type,
+      type_label: row.type_label,
+      session_name: row.session,
+      description: row.desc,
+    }));
 
     process.stdout.write(
       `  Batch ${batchNum}/${totalBatches} — rows ${i + 1}–${Math.min(i + BATCH_SIZE, plan.length)} ... `
