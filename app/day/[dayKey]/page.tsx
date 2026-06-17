@@ -29,6 +29,108 @@ import {
 } from "@/lib/trainingData";
 import { getSupabase } from "@/lib/supabase";
 import type { SessionLog, TrainingDay, WorkoutType } from "@/lib/types";
+import {
+  decodePolyline,
+  polylineToSvgPath,
+  formatPacePerMile,
+  formatDistanceMiles,
+  formatDuration,
+} from "@/lib/stravaUtils";
+
+// ---------------------------------------------------------------------------
+// Strava types
+// ---------------------------------------------------------------------------
+interface StravaActivitySummary {
+  id: string;
+  strava_id: number;
+  name: string | null;
+  sport_type: string | null;
+  type: string | null;
+  distance: number | null;
+  moving_time: number | null;
+  average_speed: number | null;
+  average_heartrate: number | null;
+  map_summary_polyline: string | null;
+  map_polyline: string | null;
+}
+
+// Tiny inline route thumbnail
+function RouteThumbnail({ polyline }: { polyline: string }) {
+  const W = 80, H = 60;
+  const coords = decodePolyline(polyline);
+  const path = polylineToSvgPath(coords, W, H, 6);
+  if (!path) return null;
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} width={W} height={H} style={{ background: "transparent" }}>
+      <defs>
+        <filter id="thumbGlow">
+          <feGaussianBlur stdDeviation="1.5" result="b" />
+          <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
+        </filter>
+      </defs>
+      <path d={path.d} fill="none" stroke="#1D9E75" strokeWidth="2.5"
+        strokeLinecap="round" strokeLinejoin="round" filter="url(#thumbGlow)" />
+      <path d={path.d} fill="none" stroke="#1D9E75" strokeWidth="1.5"
+        strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+// Strava activity card shown on day detail
+function StravaActivityCard({ activity }: { activity: StravaActivitySummary }) {
+  const poly = activity.map_polyline || activity.map_summary_polyline;
+  const dist = activity.distance ? formatDistanceMiles(activity.distance) + " mi" : null;
+  const pace = activity.average_speed ? formatPacePerMile(activity.average_speed) + "/mi" : null;
+  const hr = activity.average_heartrate ? `${Math.round(activity.average_heartrate)} bpm` : null;
+  const duration = activity.moving_time ? formatDuration(activity.moving_time) : null;
+
+  return (
+    <a
+      href={`/activity/${activity.strava_id}`}
+      className="block bg-[#1A0A05] border border-[#FC4C02]/25 rounded-2xl overflow-hidden hover:border-[#FC4C02]/50 transition-colors"
+    >
+      <div className="flex items-stretch">
+        {/* Route thumbnail */}
+        {poly && (
+          <div className="bg-[#0D0D0D] flex items-center justify-center px-3 py-3 shrink-0">
+            <RouteThumbnail polyline={poly} />
+          </div>
+        )}
+        {/* Info */}
+        <div className="flex-1 p-3 flex flex-col justify-between min-w-0">
+          <div className="flex items-start justify-between gap-2 mb-2">
+            <p className="text-sm font-medium text-white leading-snug truncate">
+              {activity.name ?? "Strava Activity"}
+            </p>
+            <svg width={14} height={14} viewBox="0 0 24 24" fill="#FC4C02" className="shrink-0 mt-0.5">
+              <path d="M15.387 17.944l-2.089-4.116h-3.065L15.387 24l5.15-10.172h-3.066m-7.008-5.599l2.836 5.598h4.172L10.463 0l-7 13.828h4.169" />
+            </svg>
+          </div>
+          <div className="flex flex-wrap gap-x-3 gap-y-1">
+            {dist && (
+              <span className="text-xs font-medium text-[#9CA3AF]">{dist}</span>
+            )}
+            {pace && (
+              <span className="text-xs font-medium text-[#9CA3AF]">{pace}</span>
+            )}
+            {hr && (
+              <span className="text-xs font-medium text-[#9CA3AF]">HR {hr}</span>
+            )}
+            {duration && (
+              <span className="text-xs font-medium text-[#9CA3AF]">{duration}</span>
+            )}
+          </div>
+        </div>
+        {/* Arrow */}
+        <div className="flex items-center pr-3">
+          <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="#FC4C02" strokeWidth="2" strokeLinecap="round">
+            <path d="M9 18l6-6-6-6" />
+          </svg>
+        </div>
+      </div>
+    </a>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -382,6 +484,9 @@ export default function DayDetailPage() {
   const [weights, setWeights] = useState("");
   const [showPacesWeights, setShowPacesWeights] = useState(false);
 
+  // Strava activity for this day
+  const [stravaActivity, setStravaActivity] = useState<StravaActivitySummary | null>(null);
+
   // ── "Move to another day" dialog state ────────────────────────────────────
   const [showMoveDialog, setShowMoveDialog] = useState(false);
   const [moveTargetKey, setMoveTargetKey]   = useState<string | null>(null);
@@ -485,6 +590,18 @@ export default function DayDetailPage() {
           setViewState("skipped");
         }
       }
+      // 3. Fetch any Strava activity matching this day_key
+      const { data: stravaData } = await supabase
+        .from("strava_activities" as "session_logs")
+        .select("id, strava_id, name, sport_type, type, distance, moving_time, average_speed, average_heartrate, map_summary_polyline, map_polyline")
+        .eq("day_key", dayKey)
+        .limit(1)
+        .maybeSingle();
+
+      if (stravaData) {
+        setStravaActivity(stravaData as unknown as StravaActivitySummary);
+      }
+
       setIsLoading(false);
     })();
   }, [dayKey]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -1135,6 +1252,16 @@ export default function DayDetailPage() {
               )}
             </section>
           </>
+        )}
+
+        {/* ── Strava activity card ── */}
+        {stravaActivity && (
+          <section className="px-5 mt-6 mb-2">
+            <h3 className="text-xs font-light tracking-wider uppercase text-[#9CA3AF] mb-3 ml-1">
+              Strava Activity
+            </h3>
+            <StravaActivityCard activity={stravaActivity} />
+          </section>
         )}
 
         {/* ── Move log dialog ── */}

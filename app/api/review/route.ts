@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { supabase } from "@/lib/supabase";
 import type { SessionLog, GarminEntry } from "@/lib/types";
+import { formatPacePerMile } from "@/lib/stravaUtils";
 
 export const dynamic = "force-dynamic";
 
@@ -73,10 +74,18 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // ── 3. Build context ───────────────────────────────────────────────────────
+  // ── 3. Fetch recent Strava activities ──────────────────────────────────────
+  const { data: stravaActivities } = await supabase
+    .from("strava_activities" as "session_logs")
+    .select("name, type, sport_type, start_date, distance, moving_time, average_speed, average_heartrate, suffer_score, day_key")
+    .order("start_date" as "date", { ascending: false })
+    .limit(20) as unknown as { data: StravaActivityRow[] | null };
+
+  // ── 4. Build context ───────────────────────────────────────────────────────
   const context = buildCoachContext(
     (sessions as SessionLog[]) ?? [],
-    (garmin as GarminEntry[]) ?? []
+    (garmin as GarminEntry[]) ?? [],
+    (stravaActivities as StravaActivityRow[]) ?? []
   );
 
   // ── 4. Call Claude ─────────────────────────────────────────────────────────
@@ -126,9 +135,29 @@ Your role:
 }
 
 // ---------------------------------------------------------------------------
+// Strava activity row type (partial — only what we fetch)
+// ---------------------------------------------------------------------------
+interface StravaActivityRow {
+  name: string | null;
+  type: string | null;
+  sport_type: string | null;
+  start_date: string | null;
+  distance: number | null;
+  moving_time: number | null;
+  average_speed: number | null;
+  average_heartrate: number | null;
+  suffer_score: number | null;
+  day_key: string | null;
+}
+
+// ---------------------------------------------------------------------------
 // Build a readable context block from DB records
 // ---------------------------------------------------------------------------
-function buildCoachContext(sessions: SessionLog[], garmin: GarminEntry[]): string {
+function buildCoachContext(
+  sessions: SessionLog[],
+  garmin: GarminEntry[],
+  stravaActivities: StravaActivityRow[] = []
+): string {
   const lines: string[] = [];
 
   // Session summary stats
@@ -252,6 +281,28 @@ Interpretation (MUST USE when advising):
       const h = g.avg_hr      != null ? `HR ${g.avg_hr}bpm`     : "";
       const v = g.vo2_max     != null ? `VO2 ${g.vo2_max}`      : "";
       lines.push(`  ${g.date}: ${[s, h, v].filter(Boolean).join(" · ") || "No metrics"}`);
+    }
+  }
+
+  // ── Strava activities ──────────────────────────────────────────────────────
+  lines.push("\n=== STRAVA ACTIVITIES (actual GPS data, newest first) ===");
+  if (!stravaActivities.length) {
+    lines.push("No Strava activities synced yet.");
+  } else {
+    for (const act of stravaActivities) {
+      const date = act.start_date ? act.start_date.slice(0, 10) : "Unknown";
+      const type = act.sport_type ?? act.type ?? "Activity";
+      const distMi = act.distance ? (act.distance / 1609.344).toFixed(1) + "mi" : null;
+      const pace = act.average_speed ? formatPacePerMile(act.average_speed) + "/mi" : null;
+      const hr = act.average_heartrate
+        ? `HR ${Math.round(act.average_heartrate)} bpm`
+        : null;
+      const suffer = act.suffer_score ? `Suffer ${act.suffer_score}` : null;
+      const time = act.moving_time
+        ? `${Math.floor(act.moving_time / 60)}min`
+        : null;
+      const parts = [distMi, pace ? `@ ${pace}` : null, time, hr, suffer].filter(Boolean);
+      lines.push(`${date} [${type}]: ${parts.join(" · ")}`);
     }
   }
 

@@ -23,6 +23,28 @@ import {
   PHASE_1,
 } from "@/lib/trainingData";
 import type { SessionLog, TrainingDay, WorkoutType } from "@/lib/types";
+import { formatRelativeTime } from "@/lib/stravaUtils";
+
+// ---------------------------------------------------------------------------
+// Strava types
+// ---------------------------------------------------------------------------
+interface StravaStatus {
+  connected: boolean;
+  athlete_name?: string | null;
+  athlete_avatar?: string | null;
+  last_sync?: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Strava icon
+// ---------------------------------------------------------------------------
+function StravaIcon({ size = 18 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="#FC4C02">
+      <path d="M15.387 17.944l-2.089-4.116h-3.065L15.387 24l5.15-10.172h-3.066m-7.008-5.599l2.836 5.598h4.172L10.463 0l-7 13.828h4.169" />
+    </svg>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -218,6 +240,11 @@ export default function TodayPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
+  // Strava connect banner
+  const [stravaStatus, setStravaStatus] = useState<StravaStatus | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [stravaToast, setStravaToast] = useState<string | null>(null);
+
   // ── Single effect: resolve date + fetch training plan + session logs ──────
   useEffect(() => {
     const now = new Date();
@@ -238,6 +265,25 @@ export default function TodayPage() {
         }
       } catch (err) {
         console.warn("[TODAY] training-plan fetch failed, using fallback:", err);
+      }
+
+      // Check Strava connection status
+      try {
+        const stravaRes = await fetch(`/api/strava/status?t=${Date.now()}`);
+        if (stravaRes.ok) setStravaStatus(await stravaRes.json());
+      } catch { /* non-critical */ }
+
+      // Check for ?strava= query param in URL
+      const params = new URLSearchParams(window.location.search);
+      const stravaParam = params.get("strava");
+      if (stravaParam === "connected") {
+        setStravaToast("Strava connected!");
+        window.history.replaceState({}, "", "/today");
+        setTimeout(() => setStravaToast(null), 3500);
+      } else if (stravaParam === "error") {
+        setStravaToast("Strava connection failed — try again.");
+        window.history.replaceState({}, "", "/today");
+        setTimeout(() => setStravaToast(null), 4000);
       }
 
       console.log("[TODAY] fetchSessions called");
@@ -541,6 +587,88 @@ export default function TodayPage() {
             </span>
           </div>
         </section>
+
+        {/* 2b. Strava Connect Banner */}
+        {stravaStatus !== null && (
+          <section className="mb-5">
+            {!stravaStatus.connected ? (
+              <div className="bg-[#1A0A05] border border-[#FC4C02]/25 rounded-2xl p-4 flex items-center gap-3">
+                <div className="w-9 h-9 rounded-full bg-[#3D1E0F] flex items-center justify-center shrink-0">
+                  <StravaIcon size={18} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-white leading-none mb-0.5">
+                    Connect Strava
+                  </p>
+                  <p className="text-xs font-light text-[#9CA3AF]">
+                    Auto-import your activities
+                  </p>
+                </div>
+                <a
+                  href="/api/strava/auth"
+                  className="bg-[#FC4C02] text-white text-xs font-semibold px-3 py-2 rounded-lg shrink-0 hover:opacity-90 transition-opacity"
+                >
+                  Connect
+                </a>
+              </div>
+            ) : (
+              <div className="bg-[#1A0A05] border border-[#FC4C02]/25 rounded-2xl p-4 flex items-center gap-3">
+                {stravaStatus.athlete_avatar ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={stravaStatus.athlete_avatar}
+                    alt="Strava avatar"
+                    className="w-9 h-9 rounded-full object-cover shrink-0"
+                  />
+                ) : (
+                  <div className="w-9 h-9 rounded-full bg-[#3D1E0F] flex items-center justify-center shrink-0">
+                    <StravaIcon size={18} />
+                  </div>
+                )}
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-white leading-none mb-0.5 truncate">
+                    {stravaStatus.athlete_name ?? "Strava connected"}
+                  </p>
+                  <p className="text-xs font-light text-[#9CA3AF]">
+                    {stravaStatus.last_sync
+                      ? `Synced ${formatRelativeTime(stravaStatus.last_sync)}`
+                      : "Not synced yet"}
+                  </p>
+                </div>
+                <button
+                  onClick={async () => {
+                    setIsSyncing(true);
+                    try {
+                      const r = await fetch("/api/strava/sync", { method: "POST" });
+                      const d = await r.json();
+                      setStravaStatus((prev) =>
+                        prev ? { ...prev, last_sync: new Date().toISOString() } : prev
+                      );
+                      setStravaToast(`Synced ${d.synced ?? 0} activities`);
+                      setTimeout(() => setStravaToast(null), 3000);
+                    } catch {
+                      setStravaToast("Sync failed — try again");
+                      setTimeout(() => setStravaToast(null), 3000);
+                    } finally {
+                      setIsSyncing(false);
+                    }
+                  }}
+                  disabled={isSyncing}
+                  className="bg-[#FC4C02] text-white text-xs font-semibold px-3 py-2 rounded-lg shrink-0 hover:opacity-90 transition-opacity disabled:opacity-50"
+                >
+                  {isSyncing ? "Syncing…" : "Sync now"}
+                </button>
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* Toast notification */}
+        {stravaToast && (
+          <div className="fixed top-[calc(env(safe-area-inset-top,0px)+12px)] left-1/2 -translate-x-1/2 z-50 bg-[#1A1A1A] border border-[#3A3A3A] rounded-full px-4 py-2 shadow-xl">
+            <p className="text-xs font-medium text-white whitespace-nowrap">{stravaToast}</p>
+          </div>
+        )}
 
         {/* 3. Hero Session Card */}
         {/* Loading skeleton — shown during SSR and until clientDate resolves */}

@@ -129,3 +129,80 @@ ALTER TABLE public.garmin_logs
 -- =============================================================================
 -- Done. Both tables are created with indexes, triggers, and RLS policies.
 -- =============================================================================
+
+-- =============================================================================
+-- Strava Integration Tables
+-- Run this block in the Supabase SQL Editor to add Strava support.
+-- =============================================================================
+
+-- ---------------------------------------------------------------------------
+-- strava_tokens
+-- Single-user app — only one row ever stored.
+-- Never expose to anon clients; read via service role key only.
+-- ---------------------------------------------------------------------------
+create table if not exists public.strava_tokens (
+  id           uuid        primary key default gen_random_uuid(),
+  access_token text        not null,
+  refresh_token text       not null,
+  expires_at   bigint      not null,
+  athlete_id   bigint      not null,
+  athlete_name text,
+  athlete_avatar text,
+  last_sync_at timestamptz,
+  created_at   timestamptz not null default now(),
+  updated_at   timestamptz not null default now()
+);
+
+-- Row-level security — no anon access (tokens are sensitive)
+alter table public.strava_tokens enable row level security;
+
+-- ---------------------------------------------------------------------------
+-- strava_activities
+-- One row per Strava activity. day_key links to training_plan.
+-- ---------------------------------------------------------------------------
+create table if not exists public.strava_activities (
+  id                   uuid    primary key default gen_random_uuid(),
+  strava_id            bigint  not null unique,
+  day_key              text,                        -- "Jun_13" — matched to training plan
+  name                 text,
+  type                 text,
+  sport_type           text,
+  start_date           text,
+  distance             numeric,                     -- metres
+  moving_time          integer,                     -- seconds
+  elapsed_time         integer,                     -- seconds
+  total_elevation_gain numeric,                     -- metres
+  average_speed        numeric,                     -- m/s
+  max_speed            numeric,
+  average_heartrate    numeric,
+  max_heartrate        numeric,
+  average_cadence      numeric,
+  suffer_score         integer,
+  calories             numeric,
+  map_polyline         text,                        -- full resolution polyline
+  map_summary_polyline text,                        -- summary polyline (faster to decode)
+  splits_metric        jsonb,                       -- per-km splits
+  laps                 jsonb,
+  best_efforts         jsonb,
+  raw_data             jsonb,                       -- full Strava API response
+  created_at           timestamptz not null default now()
+);
+
+-- Indexes
+create index if not exists idx_strava_activities_day_key    on public.strava_activities (day_key);
+create index if not exists idx_strava_activities_start_date on public.strava_activities (start_date);
+create index if not exists idx_strava_activities_strava_id  on public.strava_activities (strava_id);
+
+-- RLS — anon can read activities (used by client-side pages)
+alter table public.strava_activities enable row level security;
+
+drop policy if exists "anon_read_strava_activities" on public.strava_activities;
+create policy "anon_read_strava_activities"
+  on public.strava_activities
+  for select
+  to anon
+  using (true);
+
+-- =============================================================================
+-- End Strava tables
+-- =============================================================================
