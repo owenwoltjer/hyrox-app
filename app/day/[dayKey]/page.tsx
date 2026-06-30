@@ -18,6 +18,8 @@ import {
   Moon,
   ArrowRightLeft,
   X,
+  ChevronDown,
+  AlertTriangle,
 } from "lucide-react";
 import {
   getDayByKey,
@@ -487,6 +489,9 @@ export default function DayDetailPage() {
   // Strava activity for this day
   const [stravaActivity, setStravaActivity] = useState<StravaActivitySummary | null>(null);
 
+  // Collapsible "original session" panel — collapsed by default
+  const [showOriginal, setShowOriginal] = useState(false);
+
   // ── "Move to another day" dialog state ────────────────────────────────────
   const [showMoveDialog, setShowMoveDialog] = useState(false);
   const [moveTargetKey, setMoveTargetKey]   = useState<string | null>(null);
@@ -886,19 +891,62 @@ export default function DayDetailPage() {
               />
             )}
             <div className="relative z-10">
-              <span
-                className="text-xs font-medium tracking-wider uppercase px-3 py-1 rounded-full inline-block mb-3"
-                style={{
-                  backgroundColor: TYPE_BADGE_BG[day.type],
-                  color: TYPE_BADGE_TEXT[day.type],
-                }}
-              >
-                {day.typeLabel}
-              </span>
+              <div className="flex items-center gap-2 mb-3 flex-wrap">
+                <span
+                  className="text-xs font-medium tracking-wider uppercase px-3 py-1 rounded-full inline-block"
+                  style={{
+                    backgroundColor: TYPE_BADGE_BG[day.type],
+                    color: TYPE_BADGE_TEXT[day.type],
+                  }}
+                >
+                  {day.typeLabel}
+                </span>
+                {day.isModified && (
+                  <span className="flex items-center gap-1 text-xs font-semibold tracking-wider uppercase px-3 py-1 rounded-full bg-[#3D2A00] text-[#D4A017]">
+                    <AlertTriangle size={11} />
+                    Modified
+                  </span>
+                )}
+              </div>
               <h2 className="text-2xl font-semibold tracking-tight text-white mb-1">
                 {day.session}
               </h2>
               <p className="text-sm font-light text-[#9CA3AF]">{day.desc}</p>
+
+              {/* Modified — collapsible original session panel */}
+              {day.isModified && (day.originalSession || day.originalDesc) && (
+                <div className="mt-4">
+                  <button
+                    onClick={() => setShowOriginal((p) => !p)}
+                    className="flex items-center gap-1.5 text-xs font-medium text-[#D4A017] hover:text-[#F0BC2C] transition-colors"
+                  >
+                    <ChevronDown
+                      size={14}
+                      className={`transition-transform ${showOriginal ? "rotate-180" : ""}`}
+                    />
+                    {showOriginal ? "Hide original session" : "View original session"}
+                  </button>
+                  {showOriginal && (
+                    <div className="mt-3 bg-[#1A1400] border border-[#D4A017]/30 rounded-xl p-4">
+                      {day.modifiedReason && (
+                        <p className="text-[10px] font-medium tracking-wider uppercase text-[#D4A017] mb-2">
+                          {day.modifiedReason}
+                        </p>
+                      )}
+                      {day.originalSession && (
+                        <p className="text-sm font-medium text-[#9CA3AF] mb-1 line-through">
+                          {day.originalSession}
+                        </p>
+                      )}
+                      {day.originalDesc && (
+                        <p className="text-xs font-light text-[#6B7280] leading-relaxed">
+                          {day.originalDesc}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </section>
         )}

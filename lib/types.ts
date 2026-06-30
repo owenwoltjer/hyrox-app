@@ -21,6 +21,14 @@ export interface TrainingDay {
   session: string;
   /** Full description / prescription */
   desc: string;
+  /** True when this day's session has been edited from the original plan */
+  isModified?: boolean;
+  /** The session name before modification (only set when isModified) */
+  originalSession?: string | null;
+  /** The description before modification (only set when isModified) */
+  originalDesc?: string | null;
+  /** Why the session was modified, e.g. "Injury management" */
+  modifiedReason?: string | null;
 }
 
 // ---------------------------------------------------------------------------

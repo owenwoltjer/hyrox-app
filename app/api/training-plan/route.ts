@@ -13,6 +13,10 @@ interface DbRow {
   type_label: string;
   session_name: string;
   description: string;
+  is_modified: boolean | null;
+  original_session_name: string | null;
+  original_description: string | null;
+  modified_reason: string | null;
 }
 
 export async function GET() {
@@ -35,7 +39,7 @@ export async function GET() {
   // DOW_ORDER sort below guarantees Mon → Sun regardless of date string format.
   const { data, error } = await supabase
     .from("training_plan")
-    .select("day_key, week_number, dow, date, type, type_label, session_name, description")
+    .select("day_key, week_number, dow, date, type, type_label, session_name, description, is_modified, original_session_name, original_description, modified_reason")
     .order("week_number", { ascending: true });
 
   if (error) {
@@ -59,6 +63,10 @@ export async function GET() {
       typeLabel: row.type_label,
       session: row.session_name,
       desc: row.description,
+      isModified: row.is_modified ?? false,
+      originalSession: row.original_session_name,
+      originalDesc: row.original_description,
+      modifiedReason: row.modified_reason,
     }))
     .sort((a, b) => {
       if (a.week !== b.week) return a.week - b.week;

@@ -320,6 +320,11 @@ export default function WeekPage() {
                               Missed
                             </span>
                           )}
+                          {day.isModified && (
+                            <span className="text-[10px] font-semibold text-[#D4A017] uppercase tracking-wider bg-[#3D2A00] px-1.5 py-0.5 rounded">
+                              Modified
+                            </span>
+                          )}
                         </div>
                         <p className="text-sm font-medium text-white mt-0.5 truncate">
                           {day.session}
